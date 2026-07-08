@@ -131,12 +131,52 @@ export interface BoxDims {
   height: number
 }
 
+export interface PrinterPreset {
+  id: string
+  name: string
+  bedLength: number
+  bedWidth: number
+  bedHeight: number
+}
+
+/** common print volumes; "custom" in the UI keeps whatever is typed */
+export const PRINTER_PRESETS: PrinterPreset[] = [
+  { id: 'bambu-a1-mini', name: 'Bambu Lab A1 mini', bedLength: 180, bedWidth: 180, bedHeight: 180 },
+  { id: 'bambu-256', name: 'Bambu Lab A1 / P1 / X1', bedLength: 256, bedWidth: 256, bedHeight: 256 },
+  { id: 'prusa-mini', name: 'Prusa MINI+', bedLength: 180, bedWidth: 180, bedHeight: 180 },
+  { id: 'prusa-mk4', name: 'Prusa MK3S / MK4', bedLength: 250, bedWidth: 210, bedHeight: 220 },
+  { id: 'prusa-xl', name: 'Prusa XL', bedLength: 360, bedWidth: 360, bedHeight: 360 },
+  { id: 'ender-3', name: 'Creality Ender 3 / V2 / V3', bedLength: 220, bedWidth: 220, bedHeight: 250 },
+  { id: 'k1-max', name: 'Creality K1 Max', bedLength: 300, bedWidth: 300, bedHeight: 300 },
+  { id: 'neptune-4', name: 'Elegoo Neptune 4', bedLength: 225, bedWidth: 225, bedHeight: 265 },
+  { id: 'voron-350', name: 'Voron 2.4 350', bedLength: 350, bedWidth: 350, bedHeight: 340 },
+]
+
 /** user-dragged position of one module instance (mm, box coordinates) */
 export interface ManualPlacement {
   x: number
   y: number
   z: number
   rotated: boolean
+}
+
+/** axis-aligned rectangle on the box floor (mm) */
+export interface SpacerRect {
+  x: number
+  y: number
+  l: number
+  w: number
+}
+
+/**
+ * User-combined spacers: the listed floor rectangles print as ONE piece.
+ * Validated against the live layout at pack time; silently dropped if the
+ * area is no longer free.
+ */
+export interface SpacerMerge {
+  id: string
+  z: number
+  rects: SpacerRect[]
 }
 
 export interface Project {
@@ -155,6 +195,8 @@ export interface Project {
     targetLayers: number
     positions: Record<string, ManualPlacement>
   }
+  /** user-combined spacers (survive re-layouts only while their area stays free) */
+  spacerMerges?: SpacerMerge[]
 }
 
 export const DEFAULT_PRINTER: PrinterSettings = {

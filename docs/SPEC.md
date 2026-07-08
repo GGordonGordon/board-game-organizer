@@ -57,6 +57,16 @@ Packing uses the shape's bounding box; only the printed recess differs.
 
 ## Spacers (added 2026-07-05, fourth pass)
 
+**Combining (tenth pass, 2026-07-08):** ⌘/Ctrl-click selects multiple spacers
+in the preview; touching spacers on the same layer can be combined into ONE
+printed piece (possibly L-shaped — union of rectangles, hollowed per
+rectangle). Stored in `project.spacerMerges` (absolute floor rects + z);
+validated at pack time and silently dropped if the layout changed under them.
+Combined spacers are NOT auto-split for the bed — a warning flags them when
+they exceed the configured print volume. "Split combined spacer" undoes it.
+Auto and manual packing share one spacer pass (`fillLayerSpacers`): merges
+claim their area first, remaining free rects get auto spacers (bed-split).
+
 Optional (`printer.generateSpacers`, default on): leftover floor gaps ≥ 10 mm
 (MIN_SPACER) are filled with auto-generated hollow open-top spacer boxes —
 row ends, strips behind narrow modules, and the leftover box width — so each
@@ -123,6 +133,11 @@ was computed with, so modules don't resize under the user). In manual mode:
 
 Bed size 220×220×250, wall 1.6, floor 1.2, lid clearance 0.15/side,
 component clearance 0.4/side. Modules exceeding bed or box dims are flagged.
+Print volume is selectable from `PRINTER_PRESETS` (Bambu, Prusa, Creality,
+Elegoo, Voron…) or custom (tenth pass); the selected volume drives all
+too-large-for-bed checks. Manual-layout micro-adjustments: the selected
+module's X/Y can be typed directly in the preview panel (clamped to the box,
+overlap-rejected) in addition to dragging.
 
 ## Export formats (added 2026-07-07, ninth pass)
 

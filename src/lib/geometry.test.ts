@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeLayout, computeModules } from './packing'
+import { computeLayout, computeModules, type ModuleSpec } from './packing'
 import { buildPrintParts } from './geometry'
 import { meshToStl } from './stl'
 import { sampleProject, emptyProject } from '../store'
@@ -39,6 +39,43 @@ describe('buildPrintParts', () => {
       }
     }
   }, 30000)
+
+  it('builds a combined (L-shaped) spacer as a single solid', async () => {
+    const spec: ModuleSpec = {
+      id: 'merge:test',
+      groupId: '',
+      name: 'Combined spacer (2 pieces)',
+      type: 'spacer',
+      outer: { length: 100, width: 100, height: 30 },
+      packedHeight: 30,
+      interiorDepth: 0,
+      compartments: [],
+      hasLid: false,
+      copies: 1,
+      warnings: [],
+      rects: [
+        { x: 0, y: 0, l: 100, w: 50 },
+        { x: 0, y: 50, l: 50, w: 50 },
+      ],
+    }
+    const variant = {
+      key: 'k',
+      moduleId: spec.id,
+      name: spec.name,
+      count: 1,
+      outer: { ...spec.outer },
+      extra: { length: 0, width: 0, height: 0 },
+    }
+    const parts = await buildPrintParts(spec, variant, emptyProject().printer)
+    expect(parts).toHaveLength(1)
+    expect(parts[0].mesh.indices.length).toBeGreaterThan(0)
+    // the L-shape notch: no vertex should sit inside the empty quadrant interior
+    for (let i = 0; i < parts[0].mesh.positions.length; i += 3) {
+      const x = parts[0].mesh.positions[i]
+      const y = parts[0].mesh.positions[i + 1]
+      expect(x > 51 && y > 51).toBe(false)
+    }
+  })
 
   it('cuts a recess for every polygon shape without leaking outside the body', async () => {
     const shapes = Object.keys(POLYGON_SHAPES) as (keyof typeof POLYGON_SHAPES)[]

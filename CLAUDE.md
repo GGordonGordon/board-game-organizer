@@ -53,9 +53,14 @@ jszip (bundle export). No backend.
      expansion, spacers fill free floor per layer via `subtractRect`.
      Overlap/out-of-bounds fail the fit; above-box-height only warns.
      Preview3D owns the drag UX (snap, slide-resolve collision so modules
-     rest flush against neighbours, rotate, well↔tray pivot) and writes
-     through store.setManualPosition. Height sync is a toolbar toggle button
-     (`syncModuleHeights`, default off).
+     rest flush against neighbours, rotate, well↔tray pivot, typed X/Y
+     micro-adjustment) and writes through store.setManualPosition. Height
+     sync is a toolbar toggle button (`syncModuleHeights`, default off).
+     Spacer fill is shared by auto+manual (`fillLayerSpacers`): user merges
+     from project.spacerMerges are claimed first (one module with `rects`,
+     L-shapes allowed, warn-only on bed overflow), then free rects get
+     auto spacers. Bed checks everywhere use printer.bed* (set via
+     PRINTER_PRESETS dropdown or custom).
 - `src/lib/geometry.ts` — manifold-3d CSG. Cavities are cut with
   `shapeCavity()` — rect → cube, circle → 64-segment cylinder, polygons →
   n-segment cylinder per POLYGON_SHAPES (rotates with the compartment) — so

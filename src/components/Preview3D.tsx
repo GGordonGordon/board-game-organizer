@@ -4,11 +4,12 @@ import { Canvas, type ThreeEvent } from '@react-three/fiber'
 import { Edges, OrbitControls } from '@react-three/drei'
 import { useStore } from '../store'
 import type { PackResult, PlacedInstance } from '../lib/packing'
-import type { Project } from '../types'
+import type { Project, SpacerRect } from '../types'
 
 const S = 0.1 // mm → scene units
 const GAP = 0.6 // visual shrink so neighbouring modules are distinguishable
 const SNAP = 2 // mm: snap flush against walls and neighbours while dragging
+const TOUCH = 0.6 // mm: rects this close count as touching for combining
 
 const TYPE_LABEL = {
   'lidded-box': 'Box with lid',
@@ -37,6 +38,30 @@ function snapAxis(v: number, edges: number[]): number {
   return v
 }
 
+/** are all rects connected through shared edges? (BFS) */
+function rectsConnected(rects: SpacerRect[]): boolean {
+  if (rects.length <= 1) return true
+  const touching = (a: SpacerRect, b: SpacerRect) => {
+    const xTouch = Math.abs(a.x + a.l - b.x) < TOUCH || Math.abs(b.x + b.l - a.x) < TOUCH
+    const yTouch = Math.abs(a.y + a.w - b.y) < TOUCH || Math.abs(b.y + b.w - a.y) < TOUCH
+    const xOverlap = a.x < b.x + b.l - TOUCH && b.x < a.x + a.l - TOUCH
+    const yOverlap = a.y < b.y + b.w - TOUCH && b.y < a.y + a.w - TOUCH
+    return (xTouch && yOverlap) || (yTouch && xOverlap)
+  }
+  const seen = new Set([0])
+  const queue = [0]
+  while (queue.length) {
+    const i = queue.pop()!
+    rects.forEach((r, j) => {
+      if (!seen.has(j) && touching(rects[i], r)) {
+        seen.add(j)
+        queue.push(j)
+      }
+    })
+  }
+  return seen.size === rects.length
+}
+
 export function Preview3D({ project, result }: { project: Project; result: PackResult }) {
   const { box, groups } = project
   const enterManualLayout = useStore((s) => s.enterManualLayout)
@@ -44,9 +69,11 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
   const clearManualLayout = useStore((s) => s.clearManualLayout)
   const setPrinter = useStore((s) => s.setPrinter)
   const updateGroup = useStore((s) => s.updateGroup)
+  const addSpacerMerge = useStore((s) => s.addSpacerMerge)
+  const removeSpacerMerge = useStore((s) => s.removeSpacerMerge)
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [dragId, setDragId] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const dragOffset = useRef({ dx: 0, dy: 0 })
@@ -71,12 +98,16 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
 
   const camDist = Math.max(box.length, box.width, 100) * S * 1.4
   const hovered = hoveredId ? instById.get(hoveredId) : undefined
-  const selected = selectedId ? instById.get(selectedId) : undefined
+  const hoveredModule = hovered ? moduleById.get(hovered.moduleId) : undefined
+  const selectedInsts = selectedIds
+    .map((id) => instById.get(id))
+    .filter((i): i is PlacedInstance => !!i)
+  const selected = selectedInsts.length === 1 ? selectedInsts[0] : undefined
   const selectedModule = selected ? moduleById.get(selected.moduleId) : undefined
   const selectedGroup = selectedModule
     ? groups.find((g) => g.id === selectedModule.groupId)
     : undefined
-  const hoveredModule = hovered ? moduleById.get(hovered.moduleId) : undefined
+  const multiSpacers = selectedInsts.length >= 2 && selectedInsts.every((i) => isSpacer(i))
 
   const hoveredContents = useMemo(() => {
     if (!hoveredModule) return []
@@ -98,12 +129,26 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
     enterManualLayout(result.targetLayers, positions)
   }
 
-  function beginDrag(e: ThreeEvent<PointerEvent>, inst: PlacedInstance) {
-    if (isSpacer(inst)) return
+  function onModuleDown(e: ThreeEvent<PointerEvent>, inst: PlacedInstance) {
     e.stopPropagation()
-    setSelectedId(inst.id)
-    setHoveredId(null) // no hover effects while dragging — keeps alignment calm
     setNote(null)
+    const native = e.nativeEvent
+    const multi = native.ctrlKey || native.metaKey || native.shiftKey
+    if (isSpacer(inst)) {
+      setSelectedIds((prev) => {
+        const prevAllSpacers = prev.every((id) => {
+          const i = instById.get(id)
+          return i && isSpacer(i)
+        })
+        if (multi && prevAllSpacers && prev.length > 0) {
+          return prev.includes(inst.id) ? prev.filter((id) => id !== inst.id) : [...prev, inst.id]
+        }
+        return [inst.id]
+      })
+      return // spacers are selectable but not draggable
+    }
+    setSelectedIds([inst.id])
+    setHoveredId(null) // no hover effects while dragging — keeps alignment calm
     setDragId(inst.id)
     dragOffset.current = {
       dx: e.point.x / S + box.length / 2 - inst.x,
@@ -142,9 +187,9 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
     for (const o of others) {
       if (!spansY(o, inst.y)) continue
       if (x > inst.x && inst.x + inst.length <= o.x + 0.01 && x + inst.length > o.x) {
-        x = Math.min(x, o.x - inst.length) // moving right: stop at its left face
+        x = Math.min(x, o.x - inst.length)
       } else if (x < inst.x && inst.x >= o.x + o.length - 0.01 && x < o.x + o.length) {
-        x = Math.max(x, o.x + o.length) // moving left: stop at its right face
+        x = Math.max(x, o.x + o.length)
       }
     }
     for (const o of others) {
@@ -160,7 +205,6 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
     y = Math.round(y * 2) / 2
     const cand = { ...inst, x, y }
     if (others.some((o) => xyOverlap(cand, o))) {
-      // last resort: try each axis alone so the module can still slide
       if (!others.some((o) => xyOverlap({ ...inst, x }, o))) y = inst.y
       else if (!others.some((o) => xyOverlap({ ...inst, y }, o))) x = inst.x
       else return
@@ -170,6 +214,26 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
 
   function endDrag() {
     setDragId(null)
+  }
+
+  /** typed micro-adjustment of the selected module's position */
+  function setCoord(axis: 'x' | 'y', v: number) {
+    if (!selected || !Number.isFinite(v)) return
+    ensureManual()
+    const x =
+      axis === 'x' ? Math.min(Math.max(0, v), Math.max(0, box.length - selected.length)) : selected.x
+    const y =
+      axis === 'y' ? Math.min(Math.max(0, v), Math.max(0, box.width - selected.width)) : selected.y
+    const cand = { ...selected, x, y }
+    const collides = result.instances.some(
+      (o) => o.id !== selected.id && !isSpacer(o) && zOverlap(o, cand) && xyOverlap(cand, o),
+    )
+    if (collides) {
+      setNote('That position overlaps another module')
+      return
+    }
+    setNote(null)
+    setManualPosition(selected.id, { x, y, z: selected.z, rotated: selected.rotated })
   }
 
   function rotateSelected() {
@@ -203,13 +267,92 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
     })
   }
 
+  function combineSelected() {
+    if (selectedInsts.length < 2) return
+    const z = selectedInsts[0].z
+    if (!selectedInsts.every((i) => Math.abs(i.z - z) < 0.5)) {
+      setNote('Select spacers on the same layer to combine them')
+      return
+    }
+    const rects: SpacerRect[] = selectedInsts.flatMap((i) => {
+      const mod = moduleById.get(i.moduleId)!
+      return mod.rects?.length
+        ? mod.rects.map((r) => ({ ...r, x: r.x + i.x, y: r.y + i.y }))
+        : [{ x: i.x, y: i.y, l: i.length, w: i.width }]
+    })
+    if (!rectsConnected(rects)) {
+      setNote('Only touching spacers can be combined into one piece')
+      return
+    }
+    const replaceIds = [
+      ...new Set(selectedInsts.map((i) => i.moduleId).filter((id) => id.startsWith('merge:'))),
+    ]
+    const id = `merge:${crypto.randomUUID().slice(0, 8)}`
+    addSpacerMerge({ id, z, rects }, replaceIds)
+    setSelectedIds([`${id}#0`])
+    setNote(null)
+  }
+
   const dragInst = dragId ? instById.get(dragId) : undefined
+
+  /** render one box; merged spacers render one box per rectangle */
+  function renderInstance(inst: PlacedInstance) {
+    const isSelected = selectedIds.includes(inst.id)
+    const isHovered = hoveredId === inst.id
+    const spacer = isSpacer(inst)
+    const mod = moduleById.get(inst.moduleId)
+    const rects: SpacerRect[] =
+      spacer && mod?.rects?.length
+        ? mod.rects
+        : [{ x: 0, y: 0, l: inst.length, w: inst.width }]
+
+    const material = (
+      <meshStandardMaterial
+        color={colorByModule.get(inst.moduleId)}
+        roughness={0.65}
+        emissive={isHovered || isSelected ? colorByModule.get(inst.moduleId) : '#000000'}
+        emissiveIntensity={isSelected ? 0.55 : isHovered ? 0.4 : 0}
+        transparent
+        opacity={spacer ? 0.45 : hoveredId && !isHovered && !isSelected ? 0.4 : 0.95}
+      />
+    )
+    return rects.map((r, ri) => (
+      <mesh
+        key={`${inst.id}:${ri}`}
+        position={[
+          (inst.x + r.x + r.l / 2 - box.length / 2) * S,
+          (inst.z + inst.height / 2) * S,
+          (inst.y + r.y + r.w / 2 - box.width / 2) * S,
+        ]}
+        onPointerOver={(e) => {
+          if (dragId) return
+          e.stopPropagation()
+          setHoveredId(inst.id)
+        }}
+        onPointerOut={() => {
+          if (dragId) return
+          setHoveredId((h) => (h === inst.id ? null : h))
+        }}
+        onPointerDown={(e) => onModuleDown(e, inst)}
+      >
+        <boxGeometry
+          args={[
+            Math.max(1, r.l - GAP) * S,
+            Math.max(1, inst.height - GAP) * S,
+            Math.max(1, r.w - GAP) * S,
+          ]}
+        />
+        {material}
+        <Edges color={isSelected ? '#ffffff' : isHovered ? '#d8dbe2' : '#14161b'} />
+      </mesh>
+    ))
+  }
 
   return (
     <div className="preview" style={{ cursor: dragId ? 'grabbing' : hovered ? 'pointer' : 'grab' }}>
       <Canvas
         camera={{ position: [camDist, camDist * 0.8, camDist], fov: 40 }}
-        onPointerMissed={() => setSelectedId(null)}
+        onPointerMissed={() => setSelectedIds([])}
         onPointerUp={endDrag}
       >
         <ambientLight intensity={0.8} />
@@ -217,48 +360,7 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
         <lineSegments geometry={boxEdges} position={[0, (box.height * S) / 2, 0]}>
           <lineBasicMaterial color="#7a8090" />
         </lineSegments>
-        {result.instances.map((inst) => {
-          const isHovered = hoveredId === inst.id
-          const isSelected = selectedId === inst.id
-          const spacer = isSpacer(inst)
-          return (
-            <mesh
-              key={inst.id}
-              position={[
-                (inst.x + inst.length / 2 - box.length / 2) * S,
-                (inst.z + inst.height / 2) * S,
-                (inst.y + inst.width / 2 - box.width / 2) * S,
-              ]}
-              onPointerOver={(e) => {
-                if (dragId) return
-                e.stopPropagation()
-                setHoveredId(inst.id)
-              }}
-              onPointerOut={() => {
-                if (dragId) return
-                setHoveredId((h) => (h === inst.id ? null : h))
-              }}
-              onPointerDown={spacer ? undefined : (e) => beginDrag(e, inst)}
-            >
-              <boxGeometry
-                args={[
-                  Math.max(1, inst.length - GAP) * S,
-                  Math.max(1, inst.height - GAP) * S,
-                  Math.max(1, inst.width - GAP) * S,
-                ]}
-              />
-              <meshStandardMaterial
-                color={colorByModule.get(inst.moduleId)}
-                roughness={0.65}
-                emissive={isHovered || isSelected ? colorByModule.get(inst.moduleId) : '#000000'}
-                emissiveIntensity={isSelected ? 0.55 : isHovered ? 0.4 : 0}
-                transparent
-                opacity={spacer ? 0.45 : hoveredId && !isHovered && !isSelected ? 0.4 : 0.95}
-              />
-              <Edges color={isSelected ? '#ffffff' : isHovered ? '#d8dbe2' : '#14161b'} />
-            </mesh>
-          )
-        })}
+        {result.instances.map((inst) => renderInstance(inst))}
         {dragInst && (
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
@@ -293,7 +395,7 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
           <button
             onClick={() => {
               clearManualLayout()
-              setSelectedId(null)
+              setSelectedIds([])
             }}
           >
             Auto arrange
@@ -314,6 +416,9 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
             {hovered.layer + 1} of {result.layers.length}
             {hovered.rotated ? ' · rotated 90°' : ''}
           </div>
+          {hoveredModule.type === 'spacer' && !hoveredModule.rects && (
+            <div className="muted">⌘/Ctrl-click other spacers to combine into one print</div>
+          )}
           {hoveredContents.length > 0 && (
             <ul>
               {hoveredContents.map(([label, qty]) => (
@@ -326,19 +431,59 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
         </div>
       )}
 
-      {selected && selectedModule && (
+      {multiSpacers && (
+        <div className="preview-sel">
+          <strong>{selectedInsts.length} spacers selected</strong>
+          <button onClick={combineSelected}>Combine into one print</button>
+          <button onClick={() => setSelectedIds([])}>Done</button>
+          {note && <span className="sel-note">{note}</span>}
+        </div>
+      )}
+
+      {selected && selectedModule && !multiSpacers && (
         <div className="preview-sel">
           <strong>{selectedModule.name}</strong>
           <span className="muted">
             {mm(selected.length)} × {mm(selected.width)} × {mm(selected.height)} mm
           </span>
-          <button onClick={rotateSelected}>Rotate 90°</button>
-          {pivotable && (
-            <button onClick={pivotSelected} title="Pivot the stack: flat (backs up) ↔ on edge (edges up)">
-              {selectedGroup!.containerType === 'well' ? 'Lay flat (opening up)' : 'Stand on edge'}
-            </button>
+          {!isSpacer(selected) && (
+            <>
+              <label className="coord">
+                <span>X</span>
+                <input
+                  type="number"
+                  step={0.5}
+                  value={mm(selected.x)}
+                  onChange={(e) => setCoord('x', parseFloat(e.target.value))}
+                />
+              </label>
+              <label className="coord">
+                <span>Y</span>
+                <input
+                  type="number"
+                  step={0.5}
+                  value={mm(selected.y)}
+                  onChange={(e) => setCoord('y', parseFloat(e.target.value))}
+                />
+              </label>
+              <button onClick={rotateSelected}>Rotate 90°</button>
+              {pivotable && (
+                <button
+                  onClick={pivotSelected}
+                  title="Pivot the stack: flat (backs up) ↔ on edge (edges up)"
+                >
+                  {selectedGroup!.containerType === 'well' ? 'Lay flat (opening up)' : 'Stand on edge'}
+                </button>
+              )}
+            </>
           )}
-          <button onClick={() => setSelectedId(null)}>Done</button>
+          {isSpacer(selected) && selectedModule.rects && (
+            <button onClick={() => removeSpacerMerge(selected.moduleId)}>Split combined spacer</button>
+          )}
+          {isSpacer(selected) && !selectedModule.rects && (
+            <span className="muted">⌘/Ctrl-click other spacers to combine</span>
+          )}
+          <button onClick={() => setSelectedIds([])}>Done</button>
           {note && <span className="sel-note">{note}</span>}
         </div>
       )}

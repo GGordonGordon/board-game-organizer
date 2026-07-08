@@ -84,6 +84,16 @@ Last updated: 2026-07-05 (session "gbo_fable5")
       main. Build `npm run build`, deploy `npx wrangler deploy`
       (wrangler.jsonc serves dist/ as static assets).
 
+- [x] **Spacer combining + coord entry + printer presets** (tenth pass,
+      2026-07-08): ⌘/Ctrl-click multi-selects spacers → "Combine into one
+      print" (touching, same layer; stored in project.spacerMerges; L-shapes
+      supported via ModuleSpec.rects; warn-only when exceeding the bed;
+      "Split combined spacer" undoes). Auto + manual packing share
+      fillLayerSpacers (free-rect fill; merges claimed first). Selected
+      module panel gained typed X/Y micro-adjustment. PRINTER_PRESETS
+      dropdown (Bambu/Prusa/Creality/Elegoo/Voron + custom) feeds all bed
+      checks. 44 tests passing.
+
 ## Not yet verified 🔍
 
 - [ ] Hands-on browser test: open `npm run dev`, click **Load sample**, confirm

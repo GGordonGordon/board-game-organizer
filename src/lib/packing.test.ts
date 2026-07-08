@@ -535,6 +535,69 @@ describe('computeLayout', () => {
     expect(res.instances).toHaveLength(2)
   })
 
+  it('honours stored spacer merges and warns when the combined piece exceeds the bed', () => {
+    const mergeRects = [
+      { x: 100, y: 0, l: 180, w: 140 },
+      { x: 100, y: 140, l: 180, w: 140 },
+    ]
+    const p = project({
+      groups: [
+        { id: 'g1', name: 'Tiles', containerType: 'stack-tray', perPlayer: false, color: '#0f0' },
+      ],
+      components: [
+        { shape: 'rect' as const, id: 'c1', name: 'Tile', length: 60, width: 60, thickness: 2, quantity: 20, groupId: 'g1' },
+      ],
+      manualLayout: {
+        targetLayers: 1,
+        positions: { 'g1:c1:1#0': { x: 0, y: 0, z: 0, rotated: false } },
+      },
+      spacerMerges: [{ id: 'merge:test', z: 0, rects: mergeRects }],
+    })
+    const res = computeLayout(p)
+    const merged = res.modules.find((m) => m.id === 'merge:test')
+    expect(merged).toBeTruthy()
+    expect(merged!.type).toBe('spacer')
+    expect(merged!.rects).toHaveLength(2)
+    expect(merged!.outer.length).toBeCloseTo(180)
+    expect(merged!.outer.width).toBeCloseTo(280)
+    // bounding box 180 × 280 exceeds the default 220 × 220 bed → warning
+    expect(res.warnings.some((w) => w.includes('Combined spacer'))).toBe(true)
+    // auto spacers must not claim the merged area
+    for (const inst of res.instances) {
+      if (!inst.moduleId.startsWith('spacer:')) continue
+      for (const r of mergeRects) {
+        const overlap =
+          inst.x < r.x + r.l - 0.01 &&
+          r.x < inst.x + inst.length - 0.01 &&
+          inst.y < r.y + r.w - 0.01 &&
+          r.y < inst.y + inst.width - 0.01
+        expect(overlap).toBe(false)
+      }
+    }
+  })
+
+  it('drops a merge whose area is no longer free', () => {
+    const p = project({
+      groups: [
+        { id: 'g1', name: 'Tiles', containerType: 'stack-tray', perPlayer: false, color: '#0f0' },
+      ],
+      components: [
+        { shape: 'rect' as const, id: 'c1', name: 'Tile', length: 60, width: 60, thickness: 2, quantity: 20, groupId: 'g1' },
+      ],
+      manualLayout: {
+        targetLayers: 1,
+        positions: { 'g1:c1:1#0': { x: 0, y: 0, z: 0, rotated: false } },
+      },
+      // overlaps the tray sitting at the origin → invalid
+      spacerMerges: [{ id: 'merge:test', z: 0, rects: [{ x: 0, y: 0, l: 100, w: 100 }] }],
+    })
+    const res = computeLayout(p)
+    expect(res.modules.some((m) => m.id === 'merge:test')).toBe(false)
+    // the area is still tiled by regular auto spacers
+    const area = res.instances.reduce((s, i) => s + i.length * i.width, 0)
+    expect(area / (p.box.length * p.box.width)).toBeGreaterThan(0.95)
+  })
+
   it('applies a rotated manual placement', () => {
     const p = project({
       groups: [

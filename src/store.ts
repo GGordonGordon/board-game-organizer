@@ -8,6 +8,7 @@ import {
   type ManualPlacement,
   type PrinterSettings,
   type Project,
+  type SpacerMerge,
 } from './types'
 
 const uid = () => crypto.randomUUID().slice(0, 8)
@@ -96,6 +97,8 @@ interface Store {
   enterManualLayout: (targetLayers: number, positions: Record<string, ManualPlacement>) => void
   setManualPosition: (id: string, placement: ManualPlacement) => void
   clearManualLayout: () => void
+  addSpacerMerge: (merge: SpacerMerge, replaceIds?: string[]) => void
+  removeSpacerMerge: (id: string) => void
   loadProject: (p: Project) => void
   loadSample: () => void
   reset: () => void
@@ -186,7 +189,24 @@ export const useStore = create<Store>()(
           }
         }),
       clearManualLayout: () =>
-        set((s) => ({ project: { ...s.project, manualLayout: undefined } })),
+        set((s) => ({ project: { ...s.project, manualLayout: undefined, spacerMerges: undefined } })),
+      addSpacerMerge: (merge, replaceIds = []) =>
+        set((s) => ({
+          project: {
+            ...s.project,
+            spacerMerges: [
+              ...(s.project.spacerMerges ?? []).filter((m) => !replaceIds.includes(m.id)),
+              merge,
+            ],
+          },
+        })),
+      removeSpacerMerge: (id) =>
+        set((s) => ({
+          project: {
+            ...s.project,
+            spacerMerges: (s.project.spacerMerges ?? []).filter((m) => m.id !== id),
+          },
+        })),
 
       loadProject: (project) => set({ project }),
       loadSample: () => set({ project: sampleProject() }),

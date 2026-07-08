@@ -88,16 +88,21 @@ export async function buildPrintParts(
   const shiftY = variant.extra.width / 2
 
   if (spec.type === 'spacer') {
-    // hollow open-top box that fills a gap so neighbouring modules can't slide
+    // hollow open-top box(es) that fill gaps so neighbouring modules can't
+    // slide; combined spacers union several rectangles into one piece
     const H = variant.outer.height
     const w = s.wallThickness
-    let body = cube(L, W, H)
-    if (L > 2 * w + 4 && W > 2 * w + 4 && H > s.floorThickness + 2) {
-      body = body.subtract(
-        cube(L - 2 * w, W - 2 * w, H).translate([w, w, s.floorThickness]),
-      )
+    const rects = spec.rects?.length ? spec.rects : [{ x: 0, y: 0, l: L, w: W }]
+    let body: Solid | null = null
+    for (const r of rects) {
+      let piece = cube(r.l, r.w, H)
+      if (r.l > 2 * w + 4 && r.w > 2 * w + 4 && H > s.floorThickness + 2) {
+        piece = piece.subtract(cube(r.l - 2 * w, r.w - 2 * w, H).translate([w, w, s.floorThickness]))
+      }
+      piece = piece.translate([r.x, r.y, 0])
+      body = body ? body.add(piece) : piece
     }
-    return [{ name: variant.name, mesh: toMeshData(body) }]
+    return [{ name: variant.name, mesh: toMeshData(body!) }]
   }
 
   // stack trays and wells share the same shell: open top, finger notches to

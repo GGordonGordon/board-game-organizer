@@ -40,12 +40,17 @@ export function moduleToScad(spec: ModuleSpec, variant: PrintVariant, s: Printer
   ]
 
   if (spec.type === 'spacer') {
-    const lines = [...head, `// Hollow spacer that fills a gap in the game box`, `difference() {`]
-    lines.push(`  cube([${n(L)}, ${n(W)}, ${n(H)}]);`)
-    if (L > 2 * wall + 4 && W > 2 * wall + 4 && H > s.floorThickness + 2) {
-      lines.push(
-        `  translate([${n(wall)}, ${n(wall)}, ${n(s.floorThickness)}]) cube([${n(L - 2 * wall)}, ${n(W - 2 * wall)}, ${n(H + 1)}]);`,
-      )
+    const rects = spec.rects?.length ? spec.rects : [{ x: 0, y: 0, l: L, w: W }]
+    const lines = [...head, `// Hollow spacer that fills a gap in the game box`, `union() {`]
+    for (const r of rects) {
+      lines.push(`  translate([${n(r.x)}, ${n(r.y)}, 0]) difference() {`)
+      lines.push(`    cube([${n(r.l)}, ${n(r.w)}, ${n(H)}]);`)
+      if (r.l > 2 * wall + 4 && r.w > 2 * wall + 4 && H > s.floorThickness + 2) {
+        lines.push(
+          `    translate([${n(wall)}, ${n(wall)}, ${n(s.floorThickness)}]) cube([${n(r.l - 2 * wall)}, ${n(r.w - 2 * wall)}, ${n(H + 1)}]);`,
+        )
+      }
+      lines.push(`  }`)
     }
     lines.push(`}`, ``)
     return lines.join('\n')

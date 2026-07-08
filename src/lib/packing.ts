@@ -6,6 +6,8 @@ import {
   type PieceShape,
   type PrinterSettings,
   type Project,
+  type SpacerMerge,
+  type SpacerRect,
 } from '../types'
 
 /** height of the plug-lid lip that sits inside a lidded box's walls */
@@ -93,6 +95,12 @@ export interface ModuleSpec {
   /** identical modules needed (e.g. one per player) */
   copies: number
   warnings: string[]
+  /**
+   * combined spacers only: the floor rectangles (relative to the module's
+   * bounding-box corner) that print as one piece — the outline may be
+   * L-shaped, so `outer` is just the bounding box
+   */
+  rects?: SpacerRect[]
 }
 
 export interface PlacedInstance {
@@ -538,13 +546,11 @@ function createSpacer(
   }
 }
 
-/** axis-aligned free-space bookkeeping for gap filling around manual layouts */
-export interface FreeRect {
-  x: number
-  y: number
-  l: number
-  w: number
-}
+/** axis-aligned free-space bookkeeping for gap filling */
+export type FreeRect = SpacerRect
+
+export const rectsOverlap = (a: SpacerRect, b: SpacerRect) =>
+  a.x < b.x + b.l - 0.01 && b.x < a.x + a.l - 0.01 && a.y < b.y + b.w - 0.01 && b.y < a.y + a.w - 0.01
 
 /** remove `r` from every rect in `free`, splitting into up to 4 pieces each */
 export function subtractRect(free: FreeRect[], r: FreeRect): FreeRect[] {
@@ -564,6 +570,100 @@ export function subtractRect(free: FreeRect[], r: FreeRect): FreeRect[] {
     if (f.y + f.w - iy2 > 0.5) out.push({ x: ix1, y: iy2, l: ix2 - ix1, w: f.y + f.w - iy2 })
   }
   return out
+}
+
+interface SpacerFillCtx {
+  box: Project['box']
+  printer: PrinterSettings
+  merges: SpacerMerge[]
+  usedMergeIds: Set<string>
+  state: { count: number }
+  spacerModules: ModuleSpec[]
+  instances: PlacedInstance[]
+  warnings: string[]
+}
+
+/**
+ * Fill the free floor of one layer with spacers: user-combined merges are
+ * honoured first (if their area is still free), then the remaining free
+ * rectangles get auto spacers (bed-split). Shared by auto and manual packing.
+ */
+function fillLayerSpacers(
+  ctx: SpacerFillCtx,
+  layerIdx: number,
+  z: number,
+  height: number,
+  content: SpacerRect[],
+) {
+  const { box, printer } = ctx
+  let free: FreeRect[] = [{ x: 0, y: 0, l: box.length, w: box.width }]
+  for (const r of content) free = subtractRect(free, r)
+
+  const claimed: SpacerRect[] = []
+  for (const merge of ctx.merges) {
+    if (ctx.usedMergeIds.has(merge.id) || Math.abs(merge.z - z) > 0.5) continue
+    const ok = merge.rects.every(
+      (r) =>
+        r.x >= -0.01 &&
+        r.y >= -0.01 &&
+        r.x + r.l <= box.length + 0.01 &&
+        r.y + r.w <= box.width + 0.01 &&
+        !content.some((c) => rectsOverlap(r, c)) &&
+        !claimed.some((c) => rectsOverlap(r, c)),
+    )
+    if (!ok) continue // layout changed under the merge: silently fall back to auto spacers
+    ctx.usedMergeIds.add(merge.id)
+    claimed.push(...merge.rects)
+    for (const r of merge.rects) free = subtractRect(free, r)
+
+    const minX = Math.min(...merge.rects.map((r) => r.x))
+    const minY = Math.min(...merge.rects.map((r) => r.y))
+    const L = Math.max(...merge.rects.map((r) => r.x + r.l)) - minX
+    const W = Math.max(...merge.rects.map((r) => r.y + r.w)) - minY
+    ctx.spacerModules.push({
+      id: merge.id,
+      groupId: '',
+      name: `Combined spacer (${merge.rects.length} pieces)`,
+      type: 'spacer',
+      outer: { length: L, width: W, height },
+      packedHeight: height,
+      interiorDepth: 0,
+      compartments: [],
+      hasLid: false,
+      copies: 1,
+      warnings: [],
+      rects: merge.rects.map((r) => ({ ...r, x: r.x - minX, y: r.y - minY })),
+    })
+    ctx.instances.push({
+      id: `${merge.id}#0`,
+      moduleId: merge.id,
+      x: minX,
+      y: minY,
+      z,
+      rotated: false,
+      layer: layerIdx,
+      length: L,
+      width: W,
+      height,
+    })
+    const { bedLength, bedWidth } = printer
+    const fitsBed =
+      (L <= bedLength && W <= bedWidth) || (W <= bedLength && L <= bedWidth)
+    if (!fitsBed) {
+      ctx.warnings.push(
+        `Combined spacer (${L.toFixed(0)} × ${W.toFixed(0)} mm) is larger than your ${bedLength} × ${bedWidth} mm print bed — split it or check your printer settings`,
+      )
+    }
+  }
+
+  for (const f of free) {
+    if (f.l < MIN_SPACER || f.w < MIN_SPACER) continue
+    ctx.state.count++
+    const out = createSpacer(ctx.state.count, f.l, f.w, f.x, f.y, height, layerIdx, z, printer)
+    ctx.spacerModules.push(out.module)
+    ctx.instances.push(...out.instances)
+    if (out.warning) ctx.warnings.push(out.warning)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -600,20 +700,11 @@ export function packLayout(modules: ModuleSpec[], project: Project): PackResult 
   const spacerModules: ModuleSpec[] = []
   const spacersOn = project.printer.generateSpacers ?? false
   const syncOn = project.printer.syncModuleHeights ?? false
-  let spacerCount = 0
   let contentArea = 0
   let remaining = items
   let z = 0
   let layerIdx = 0
   let allPlaced = true
-
-  const addSpacer = (l: number, w: number, x: number, y: number, h: number, layer: number, zz: number) => {
-    spacerCount++
-    const out = createSpacer(spacerCount, l, w, x, y, h, layer, zz, project.printer)
-    spacerModules.push(out.module)
-    instances.push(...out.instances)
-    if (out.warning) warnings.push(out.warning)
-  }
 
   while (remaining.length > 0) {
     const res = shelfPack(
@@ -652,10 +743,9 @@ export function packLayout(modules: ModuleSpec[], project: Project): PackResult 
         const item = byKey.get(p.id)!
         const fl = p.l + perItemX
         let fw = Math.min(shelfH, p.w + MAX_SNUG_EXPANSION)
-        // item much narrower than its shelf: fill the strip behind it
+        // item much narrower than its shelf: leave the strip for spacer fill
         if (spacersOn && shelfH - p.w >= MIN_SPACER) {
           fw = p.w
-          addSpacer(fl, shelfH - fw, xCursor, yCursor + fw, layerHeight, layerIdx, z)
         } else {
           residual = Math.max(residual, shelfH - fw)
         }
@@ -675,10 +765,8 @@ export function packLayout(modules: ModuleSpec[], project: Project): PackResult 
         contentArea += fl * fw
         xCursor += fl
       }
-      if (xSpacer) addSpacer(box.length - xCursor, shelfH, xCursor, yCursor, layerHeight, layerIdx, z)
       yCursor += shelfH
     }
-    if (ySpacer) addSpacer(box.length, box.width - yCursor, 0, yCursor, layerHeight, layerIdx, z)
     if (residual > SLACK_WARN) {
       warnings.push(
         `layer ${layerIdx + 1}: up to ${residual.toFixed(1)} mm of horizontal slack remains — consider a spacer or rearranging groups`,
@@ -689,6 +777,25 @@ export function packLayout(modules: ModuleSpec[], project: Project): PackResult 
     z += layerHeight
     layerIdx++
     remaining = remaining.filter((it) => res.unplaced.includes(it.key))
+  }
+
+  if (spacersOn) {
+    const ctx: SpacerFillCtx = {
+      box,
+      printer: project.printer,
+      merges: project.spacerMerges ?? [],
+      usedMergeIds: new Set(),
+      state: { count: 0 },
+      spacerModules,
+      instances,
+      warnings,
+    }
+    layers.forEach((layer, li) => {
+      const content = instances
+        .filter((i) => i.layer === li && !i.moduleId.startsWith('spacer:') && !i.moduleId.startsWith('merge:'))
+        .map((i) => ({ x: i.x, y: i.y, l: i.length, w: i.width }))
+      fillLayerSpacers(ctx, li, layer.z, layer.height, content)
+    })
   }
 
   const usedHeight = z
@@ -898,26 +1005,27 @@ export function packManual(modules: ModuleSpec[], project: Project): PackResult 
     )
   }
 
-  // fill the free floor space of each layer with spacers
+  // fill the free floor space of each layer with spacers (honouring merges)
   const spacerModules: ModuleSpec[] = []
-  let spacerCount = 0
   let contentArea = 0
+  const ctx: SpacerFillCtx = {
+    box,
+    printer,
+    merges: project.spacerMerges ?? [],
+    usedMergeIds: new Set(),
+    state: { count: 0 },
+    spacerModules,
+    instances,
+    warnings,
+  }
   layers.forEach((layer, li) => {
-    const members = instances.filter((i) => i.layer === li && i.moduleId.indexOf('spacer:') !== 0)
-    let free: FreeRect[] = [{ x: 0, y: 0, l: box.length, w: box.width }]
-    for (const m of members) {
-      contentArea += m.length * m.width
-      free = subtractRect(free, { x: m.x, y: m.y, l: m.length, w: m.width })
-    }
+    const members = instances.filter(
+      (i) => i.layer === li && !i.moduleId.startsWith('spacer:') && !i.moduleId.startsWith('merge:'),
+    )
+    const content = members.map((m) => ({ x: m.x, y: m.y, l: m.length, w: m.width }))
+    for (const m of members) contentArea += m.length * m.width
     if (!spacersOn) return
-    for (const f of free) {
-      if (f.l < MIN_SPACER || f.w < MIN_SPACER) continue
-      spacerCount++
-      const out = createSpacer(spacerCount, f.l, f.w, f.x, f.y, layer.height, li, layer.z, printer)
-      spacerModules.push(out.module)
-      instances.push(...out.instances)
-      if (out.warning) warnings.push(out.warning)
-    }
+    fillLayerSpacers(ctx, li, layer.z, layer.height, content)
   })
 
   const boxArea = box.length * box.width

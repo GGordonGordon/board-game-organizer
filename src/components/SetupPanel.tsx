@@ -1,5 +1,6 @@
 import { useStore } from '../store'
 import { NumField, TextField } from './Field'
+import { PRINTER_PRESETS } from '../types'
 
 export function SetupPanel() {
   const project = useStore((s) => s.project)
@@ -28,6 +29,38 @@ export function SetupPanel() {
       </p>
       <details>
         <summary>Printer &amp; fit settings</summary>
+        <div className="field-row">
+          <label className="field">
+            <span>Printer / print volume</span>
+            <select
+              value={
+                PRINTER_PRESETS.find(
+                  (p) =>
+                    p.bedLength === printer.bedLength &&
+                    p.bedWidth === printer.bedWidth &&
+                    p.bedHeight === printer.bedHeight,
+                )?.id ?? 'custom'
+              }
+              onChange={(e) => {
+                const p = PRINTER_PRESETS.find((pr) => pr.id === e.target.value)
+                if (p) {
+                  setPrinter({ bedLength: p.bedLength, bedWidth: p.bedWidth, bedHeight: p.bedHeight })
+                }
+              }}
+            >
+              {PRINTER_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.bedLength} × {p.bedWidth} × {p.bedHeight})
+                </option>
+              ))}
+              <option value="custom">Custom…</option>
+            </select>
+          </label>
+        </div>
+        <p className="hint">
+          Modules, spacers, and combined spacers are checked against this print volume — anything
+          too large is flagged in the layout warnings.
+        </p>
         <div className="field-row">
           <NumField label="Bed length" value={printer.bedLength} onChange={(v) => setPrinter({ bedLength: v })} />
           <NumField label="Bed width" value={printer.bedWidth} onChange={(v) => setPrinter({ bedWidth: v })} />
