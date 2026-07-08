@@ -96,4 +96,10 @@ Last updated: 2026-07-05 (session "gbo_fable5")
 Read `CLAUDE.md` (architecture + gotchas), then this file. The whole pipeline is
 `computeLayout()` in `src/lib/packing.ts` → `buildPrintParts()` in
 `src/lib/geometry.ts`; UI is thin on top of those two pure-ish layers.
-Git is not initialized yet — consider `git init` + first commit.
+
+Repo: https://github.com/GGordonGordon/board-game-organizer (Grant's personal
+account — deliberately NOT under Gordon Data Group; this is a hobby project).
+Pushing from this machine uses the repo-local `gh auth git-credential` helper;
+the gh CLI must be logged in as GGordonGordon (keychain may hold a work
+account). Next deploy step: connect the repo to Cloudflare Pages/Netlify
+(build `npm run build`, output `dist`).
