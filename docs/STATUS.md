@@ -101,5 +101,6 @@ Repo: https://github.com/GGordonGordon/board-game-organizer (Grant's personal
 account — deliberately NOT under Gordon Data Group; this is a hobby project).
 Pushing from this machine uses the repo-local `gh auth git-credential` helper;
 the gh CLI must be logged in as GGordonGordon (keychain may hold a work
-account). Next deploy step: connect the repo to Cloudflare Pages/Netlify
-(build `npm run build`, output `dist`).
+account). Hosting: Cloudflare Workers Builds (the newer Workers+assets flow,
+not classic Pages) — `wrangler.jsonc` names the Worker and serves `dist/`;
+build command `npm run build`, deploy command `npx wrangler deploy`.
