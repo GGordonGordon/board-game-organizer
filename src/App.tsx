@@ -30,6 +30,12 @@ export default function App() {
           <ExportPanel result={result} />
         </div>
       </main>
+      <footer>
+        Enjoying Board Game Organizer?{' '}
+        <a href="https://buymeacoffee.com/GGordonGordon" target="_blank" rel="noopener noreferrer">
+          ☕ Buy me a coffee
+        </a>
+      </footer>
     </div>
   )
 }
