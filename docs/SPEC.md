@@ -59,8 +59,13 @@ Packing uses the shape's bounding box; only the printed recess differs.
 
 **Combining (tenth pass, 2026-07-08):** ⌘/Ctrl-click selects multiple spacers
 in the preview; touching spacers on the same layer can be combined into ONE
-printed piece (possibly L-shaped — union of rectangles, hollowed per
-rectangle). Stored in `project.spacerMerges` (absolute floor rects + z);
+printed piece (possibly L-shaped — union of rectangles). Hollowing is per
+rectangle by default; the "remove inner walls" option (default on when
+combining, toggleable afterwards) hollows the outline as ONE open shell —
+the cavity is the footprint eroded by the wall thickness, computed by
+intersecting ±wall translates per axis (exact for these unions since every
+rect is ≥ MIN_SPACER wide). Stored in `project.spacerMerges` (absolute floor
+rects + z + removeInnerWalls);
 validated at pack time and silently dropped if the layout changed under them.
 Combined spacers are NOT auto-split for the bed — a warning flags them when
 they exceed the configured print volume. "Split combined spacer" undoes it.
@@ -138,6 +143,12 @@ Elegoo, Voron…) or custom (tenth pass); the selected volume drives all
 too-large-for-bed checks. Manual-layout micro-adjustments: the selected
 module's X/Y can be typed directly in the preview panel (clamped to the box,
 overlap-rejected) in addition to dragging.
+
+**Module size overrides** (eleventh pass): the selected module's printed
+L/W/H can be typed too — grow-only (values below the computed minimum are
+ignored), stored per module id in `project.moduleSizes`, applied in
+`computeModules` (walls thicken, compartments recentre, height raises the
+packed height). Lets users match the sizes of similar modules so they align.
 
 ## Export formats (added 2026-07-07, ninth pass)
 

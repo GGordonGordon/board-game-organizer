@@ -93,6 +93,25 @@ export async function buildPrintParts(
     const H = variant.outer.height
     const w = s.wallThickness
     const rects = spec.rects?.length ? spec.rects : [{ x: 0, y: 0, l: L, w: W }]
+
+    if (spec.removeInnerWalls && rects.length > 1 && H > s.floorThickness + 2) {
+      // one open shell: hollow the combined outline around its outer
+      // perimeter only. The cavity is the footprint eroded by the wall
+      // thickness — computed by intersecting ±wall translates per axis,
+      // which is exact for these axis-aligned unions.
+      let solid: Solid | null = null
+      let foot: Solid | null = null
+      for (const r of rects) {
+        const piece = cube(r.l, r.w, H).translate([r.x, r.y, 0])
+        solid = solid ? solid.add(piece) : piece
+        const fp = cube(r.l, r.w, H).translate([r.x, r.y, s.floorThickness])
+        foot = foot ? foot.add(fp) : fp
+      }
+      const ex = foot!.translate([w, 0, 0]).intersect(foot!.translate([-w, 0, 0]))
+      const cavity = ex.translate([0, w, 0]).intersect(ex.translate([0, -w, 0]))
+      return [{ name: variant.name, mesh: toMeshData(solid!.subtract(cavity)) }]
+    }
+
     let body: Solid | null = null
     for (const r of rects) {
       let piece = cube(r.l, r.w, H)

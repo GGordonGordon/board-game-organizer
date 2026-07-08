@@ -177,6 +177,8 @@ export interface SpacerMerge {
   id: string
   z: number
   rects: SpacerRect[]
+  /** hollow the combined outline as one open shell instead of per-rectangle (no walls at the seams) */
+  removeInnerWalls?: boolean
 }
 
 export interface Project {
@@ -197,6 +199,18 @@ export interface Project {
   }
   /** user-combined spacers (survive re-layouts only while their area stays free) */
   spacerMerges?: SpacerMerge[]
+  /**
+   * per-module printed-size overrides (mm), keyed by module id. Grow-only:
+   * values below the computed minimum are ignored. Lets users match the
+   * sizes of similar modules so they align in the box.
+   */
+  moduleSizes?: Record<string, ModuleSizeOverride>
+}
+
+export interface ModuleSizeOverride {
+  length?: number
+  width?: number
+  height?: number
 }
 
 export const DEFAULT_PRINTER: PrinterSettings = {

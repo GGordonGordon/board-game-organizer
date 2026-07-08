@@ -284,6 +284,39 @@ describe('computeModules', () => {
     expect(modules[0].compartments[0].width).toBeCloseTo(56 + 2 * p.printer.componentClearance)
   })
 
+  it('grows modules to their size override and recentres contents', () => {
+    const p = project({
+      groups: [
+        { id: 'g1', name: 'Tokens', containerType: 'lidded-box', perPlayer: false, color: '#fff' },
+        { id: 'g2', name: 'Tiles', containerType: 'stack-tray', perPlayer: false, color: '#fff' },
+      ],
+      components: [
+        { shape: 'rect' as const, id: 'c1', name: 'Coin', length: 20, width: 20, thickness: 2, quantity: 10, groupId: 'g1' },
+        { shape: 'rect' as const, id: 'c2', name: 'Tile', length: 60, width: 60, thickness: 2, quantity: 10, groupId: 'g2' },
+      ],
+    })
+    const base = computeModules(p).modules
+    const lidBase = base.find((m) => m.type === 'lidded-box')!
+    const trayBase = base.find((m) => m.type === 'stack-tray')!
+
+    p.moduleSizes = {
+      [lidBase.id]: { length: lidBase.outer.length + 20, height: lidBase.outer.height + 10 },
+      [trayBase.id]: { width: 100, length: 1 }, // length below minimum → ignored
+    }
+    const { modules } = computeModules(p)
+    const lid = modules.find((m) => m.type === 'lidded-box')!
+    const tray = modules.find((m) => m.type === 'stack-tray')!
+
+    expect(lid.outer.length).toBeCloseTo(lidBase.outer.length + 20)
+    expect(lid.outer.height).toBeCloseTo(lidBase.outer.height + 10)
+    expect(lid.packedHeight).toBeCloseTo(lidBase.packedHeight + 10)
+    // compartments recentred: shifted by half the growth
+    expect(lid.compartments[0].x).toBeCloseTo(lidBase.compartments[0].x + 10)
+
+    expect(tray.outer.width).toBeCloseTo(100)
+    expect(tray.outer.length).toBeCloseTo(trayBase.outer.length) // grow-only
+  })
+
   it('sizes a stack tray from the tile stack', () => {
     const p = project({
       groups: [

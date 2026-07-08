@@ -77,6 +77,61 @@ describe('buildPrintParts', () => {
     }
   })
 
+  it('removes seam walls when a combined spacer is hollowed as one shell', async () => {
+    const base: ModuleSpec = {
+      id: 'merge:test',
+      groupId: '',
+      name: 'Combined spacer (2 pieces)',
+      type: 'spacer',
+      outer: { length: 100, width: 100, height: 30 },
+      packedHeight: 30,
+      interiorDepth: 0,
+      compartments: [],
+      hasLid: false,
+      copies: 1,
+      warnings: [],
+      rects: [
+        { x: 0, y: 0, l: 100, w: 50 },
+        { x: 0, y: 50, l: 100, w: 50 },
+      ],
+    }
+    const variant = {
+      key: 'k',
+      moduleId: base.id,
+      name: base.name,
+      count: 1,
+      outer: { ...base.outer },
+      extra: { length: 0, width: 0, height: 0 },
+    }
+    const printer = emptyProject().printer
+
+    // signed mesh volume: Σ dot(a, b × c) / 6
+    const volume = (mesh: { positions: Float32Array; indices: Uint32Array }) => {
+      let v = 0
+      const p = mesh.positions
+      for (let t = 0; t < mesh.indices.length; t += 3) {
+        const a = mesh.indices[t] * 3
+        const b = mesh.indices[t + 1] * 3
+        const c = mesh.indices[t + 2] * 3
+        v +=
+          (p[a] * (p[b + 1] * p[c + 2] - p[b + 2] * p[c + 1]) -
+            p[a + 1] * (p[b] * p[c + 2] - p[b + 2] * p[c]) +
+            p[a + 2] * (p[b] * p[c + 1] - p[b + 1] * p[c])) /
+          6
+      }
+      return Math.abs(v)
+    }
+
+    const withWalls = await buildPrintParts(base, variant, printer)
+    const openShell = await buildPrintParts({ ...base, removeInnerWalls: true }, variant, printer)
+    const vWalls = volume(withWalls[0].mesh)
+    const vOpen = volume(openShell[0].mesh)
+    // the seam wall (2·wall thick × ~97 long × ~28.8 tall) disappears
+    const seamVolume = 2 * printer.wallThickness * (100 - 2 * printer.wallThickness) * (30 - printer.floorThickness)
+    expect(vWalls - vOpen).toBeCloseTo(seamVolume, -1)
+    expect(vOpen).toBeLessThan(vWalls)
+  })
+
   it('cuts a recess for every polygon shape without leaking outside the body', async () => {
     const shapes = Object.keys(POLYGON_SHAPES) as (keyof typeof POLYGON_SHAPES)[]
     const project = emptyProject()

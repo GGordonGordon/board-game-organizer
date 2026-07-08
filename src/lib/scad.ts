@@ -41,6 +41,34 @@ export function moduleToScad(spec: ModuleSpec, variant: PrintVariant, s: Printer
 
   if (spec.type === 'spacer') {
     const rects = spec.rects?.length ? spec.rects : [{ x: 0, y: 0, l: L, w: W }]
+
+    if (spec.removeInnerWalls && rects.length > 1 && H > s.floorThickness + 2) {
+      const cubes = rects
+        .map((r) => `    translate([${n(r.x)}, ${n(r.y)}, ${n(s.floorThickness)}]) cube([${n(r.l)}, ${n(r.w)}, ${n(H)}]);`)
+        .join('\n')
+      return [
+        ...head,
+        `// Combined spacer hollowed as one open shell (inner walls removed):`,
+        `// the cavity is the footprint eroded by the wall thickness.`,
+        `module footprint() {`,
+        `  union() {`,
+        cubes,
+        `  }`,
+        `}`,
+        `module cavity_x() { intersection() { translate([${n(wall)}, 0, 0]) footprint(); translate([${n(-wall)}, 0, 0]) footprint(); } }`,
+        `module cavity() { intersection() { translate([0, ${n(wall)}, 0]) cavity_x(); translate([0, ${n(-wall)}, 0]) cavity_x(); } }`,
+        `difference() {`,
+        `  union() {`,
+        rects
+          .map((r) => `    translate([${n(r.x)}, ${n(r.y)}, 0]) cube([${n(r.l)}, ${n(r.w)}, ${n(H)}]);`)
+          .join('\n'),
+        `  }`,
+        `  cavity();`,
+        `}`,
+        ``,
+      ].join('\n')
+    }
+
     const lines = [...head, `// Hollow spacer that fills a gap in the game box`, `union() {`]
     for (const r of rects) {
       lines.push(`  translate([${n(r.x)}, ${n(r.y)}, 0]) difference() {`)

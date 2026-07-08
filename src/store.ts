@@ -6,6 +6,7 @@ import {
   type ComponentGroup,
   type GameComponent,
   type ManualPlacement,
+  type ModuleSizeOverride,
   type PrinterSettings,
   type Project,
   type SpacerMerge,
@@ -99,6 +100,8 @@ interface Store {
   clearManualLayout: () => void
   addSpacerMerge: (merge: SpacerMerge, replaceIds?: string[]) => void
   removeSpacerMerge: (id: string) => void
+  setModuleSize: (id: string, patch: ModuleSizeOverride) => void
+  clearModuleSize: (id: string) => void
   loadProject: (p: Project) => void
   loadSample: () => void
   reset: () => void
@@ -207,6 +210,22 @@ export const useStore = create<Store>()(
             spacerMerges: (s.project.spacerMerges ?? []).filter((m) => m.id !== id),
           },
         })),
+      setModuleSize: (id, patch) =>
+        set((s) => ({
+          project: {
+            ...s.project,
+            moduleSizes: {
+              ...(s.project.moduleSizes ?? {}),
+              [id]: { ...(s.project.moduleSizes?.[id] ?? {}), ...patch },
+            },
+          },
+        })),
+      clearModuleSize: (id) =>
+        set((s) => {
+          const sizes = { ...(s.project.moduleSizes ?? {}) }
+          delete sizes[id]
+          return { project: { ...s.project, moduleSizes: sizes } }
+        }),
 
       loadProject: (project) => set({ project }),
       loadSample: () => set({ project: sampleProject() }),

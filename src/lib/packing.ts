@@ -101,6 +101,8 @@ export interface ModuleSpec {
    * L-shaped, so `outer` is just the bounding box
    */
   rects?: SpacerRect[]
+  /** combined spacers: hollow as one open shell (no walls at rect seams) */
+  removeInnerWalls?: boolean
 }
 
 export interface PlacedInstance {
@@ -342,6 +344,7 @@ export function computeModules(
             copies,
             warnings: [],
           }
+          applySizeOverride(mod, project)
           checkModuleSize(mod, project, warnings)
           modules.push(mod)
         }
@@ -396,6 +399,7 @@ export function computeModules(
             copies,
             warnings: [],
           }
+          applySizeOverride(mod, project)
           checkModuleSize(mod, project, warnings)
           modules.push(mod)
         }
@@ -454,6 +458,7 @@ export function computeModules(
           `${res.unplaced.length} component stack(s) do not fit in a single box footprint — split this group or check dimensions`,
         )
       }
+      applySizeOverride(mod, project)
       checkModuleSize(mod, project, warnings)
       modules.push(mod)
     }
@@ -461,6 +466,30 @@ export function computeModules(
 
   for (const m of modules) warnings.push(...m.warnings.map((w) => `${m.name}: ${w}`))
   return { modules, warnings }
+}
+
+/**
+ * Grow a module to its user-set size override (never shrink below the
+ * computed minimum). Extra material thickens the walls; the compartment
+ * layout is re-centred so contents stay in the middle.
+ */
+function applySizeOverride(mod: ModuleSpec, project: Project) {
+  const o = project.moduleSizes?.[mod.id]
+  if (!o) return
+  const dL = Math.max(0, (o.length ?? 0) - mod.outer.length)
+  const dW = Math.max(0, (o.width ?? 0) - mod.outer.width)
+  const dH = Math.max(0, (o.height ?? 0) - mod.outer.height)
+  if (dL <= 0 && dW <= 0 && dH <= 0) return
+  mod.outer = {
+    length: mod.outer.length + dL,
+    width: mod.outer.width + dW,
+    height: mod.outer.height + dH,
+  }
+  mod.packedHeight += dH
+  for (const c of mod.compartments) {
+    c.x += dL / 2
+    c.y += dW / 2
+  }
 }
 
 function checkModuleSize(mod: ModuleSpec, project: Project, _warnings: string[]) {
@@ -633,6 +662,7 @@ function fillLayerSpacers(
       copies: 1,
       warnings: [],
       rects: merge.rects.map((r) => ({ ...r, x: r.x - minX, y: r.y - minY })),
+      removeInnerWalls: merge.removeInnerWalls,
     })
     ctx.instances.push({
       id: `${merge.id}#0`,

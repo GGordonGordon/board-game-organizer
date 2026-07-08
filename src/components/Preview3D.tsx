@@ -71,11 +71,14 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
   const updateGroup = useStore((s) => s.updateGroup)
   const addSpacerMerge = useStore((s) => s.addSpacerMerge)
   const removeSpacerMerge = useStore((s) => s.removeSpacerMerge)
+  const setModuleSize = useStore((s) => s.setModuleSize)
+  const clearModuleSize = useStore((s) => s.clearModuleSize)
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [dragId, setDragId] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  const [combineOpen, setCombineOpen] = useState(true)
   const dragOffset = useRef({ dx: 0, dy: 0 })
 
   const manual = !!project.manualLayout
@@ -288,10 +291,15 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
       ...new Set(selectedInsts.map((i) => i.moduleId).filter((id) => id.startsWith('merge:'))),
     ]
     const id = `merge:${crypto.randomUUID().slice(0, 8)}`
-    addSpacerMerge({ id, z, rects }, replaceIds)
+    addSpacerMerge({ id, z, rects, removeInnerWalls: combineOpen }, replaceIds)
     setSelectedIds([`${id}#0`])
     setNote(null)
   }
+
+  const selectedMerge =
+    selected && selectedModule?.rects
+      ? project.spacerMerges?.find((m) => m.id === selected.moduleId)
+      : undefined
 
   const dragInst = dragId ? instById.get(dragId) : undefined
 
@@ -435,6 +443,14 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
         <div className="preview-sel">
           <strong>{selectedInsts.length} spacers selected</strong>
           <button onClick={combineSelected}>Combine into one print</button>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={combineOpen}
+              onChange={(e) => setCombineOpen(e.target.checked)}
+            />
+            <span>Remove inner walls (one open shell, less plastic)</span>
+          </label>
           <button onClick={() => setSelectedIds([])}>Done</button>
           {note && <span className="sel-note">{note}</span>}
         </div>
@@ -466,6 +482,28 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
                   onChange={(e) => setCoord('y', parseFloat(e.target.value))}
                 />
               </label>
+              <span className="muted">·</span>
+              {(['length', 'width', 'height'] as const).map((dim) => (
+                <label
+                  className="coord"
+                  key={dim}
+                  title="Grow the printed size beyond the computed minimum, e.g. to match a neighbouring module (values below the minimum are ignored)"
+                >
+                  <span>{dim === 'length' ? 'L' : dim === 'width' ? 'W' : 'H'}</span>
+                  <input
+                    type="number"
+                    step={0.5}
+                    value={mm(selectedModule.outer[dim])}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value)
+                      if (Number.isFinite(v)) setModuleSize(selectedModule.id, { [dim]: v })
+                    }}
+                  />
+                </label>
+              ))}
+              {project.moduleSizes?.[selectedModule.id] && (
+                <button onClick={() => clearModuleSize(selectedModule.id)}>Reset size</button>
+              )}
               <button onClick={rotateSelected}>Rotate 90°</button>
               {pivotable && (
                 <button
@@ -478,7 +516,24 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
             </>
           )}
           {isSpacer(selected) && selectedModule.rects && (
-            <button onClick={() => removeSpacerMerge(selected.moduleId)}>Split combined spacer</button>
+            <>
+              {selectedMerge && (
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedMerge.removeInnerWalls}
+                    onChange={(e) =>
+                      addSpacerMerge(
+                        { ...selectedMerge, removeInnerWalls: e.target.checked },
+                        [selectedMerge.id],
+                      )
+                    }
+                  />
+                  <span>Inner walls removed</span>
+                </label>
+              )}
+              <button onClick={() => removeSpacerMerge(selected.moduleId)}>Split combined spacer</button>
+            </>
           )}
           {isSpacer(selected) && !selectedModule.rects && (
             <span className="muted">⌘/Ctrl-click other spacers to combine</span>

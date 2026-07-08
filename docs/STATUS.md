@@ -93,6 +93,16 @@ Last updated: 2026-07-05 (session "gbo_fable5")
       module panel gained typed X/Y micro-adjustment. PRINTER_PRESETS
       dropdown (Bambu/Prusa/Creality/Elegoo/Voron + custom) feeds all bed
       checks. 44 tests passing.
+- [x] **Remove inner walls on combined spacers** (same day): checkbox when
+      combining (default on) + toggle on selected merges. One-shell hollowing
+      via footprint erosion (intersect ±wall translates per axis) in both
+      geometry.ts and scad.ts; volume-diff test proves the seam wall is gone.
+      45 tests passing.
+- [x] **Module size overrides** (eleventh pass, same day): selected module
+      panel gained L/W/H inputs — grow-only overrides stored in
+      project.moduleSizes, applied via applySizeOverride() in computeModules
+      (compartments recentred; "Reset size" clears). For aligning similar
+      modules. 46 tests passing.
 
 ## Not yet verified 🔍
 
