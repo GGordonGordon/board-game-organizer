@@ -78,6 +78,12 @@ Last updated: 2026-07-05 (session "gbo_fable5")
       source mirroring geometry.ts (keep in sync!). export.test.ts round-trips
       the 3MF and checks $fn per polygon. 41 tests passing.
 
+- [x] **Published + deployed** (2026-07-07): repo at
+      https://github.com/GGordonGordon/board-game-organizer (Grant's personal
+      account), live on Cloudflare Workers Builds — auto-deploys on push to
+      main. Build `npm run build`, deploy `npx wrangler deploy`
+      (wrangler.jsonc serves dist/ as static assets).
+
 ## Not yet verified 🔍
 
 - [ ] Hands-on browser test: open `npm run dev`, click **Load sample**, confirm
@@ -86,9 +92,9 @@ Last updated: 2026-07-05 (session "gbo_fable5")
 
 ## Next steps 🔜 (roughly in order)
 
-1. Browser + slicer verification of sample-project STLs
+1. Browser + slicer verification of sample-project STLs; print a test module
 2. Nicer lid: chamfered lip for easier insertion; optional thumb notch on box rim
-3. Deploy as static site (any static host; `npm run build` → `dist/`)
+3. Custom domain for the live site (Cloudflare dashboard → Worker → domains)
 6. See "Out of scope for v1" list in SPEC.md for the longer roadmap
 
 ## How to resume
