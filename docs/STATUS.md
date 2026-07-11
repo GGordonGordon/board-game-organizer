@@ -104,6 +104,13 @@ Last updated: 2026-07-05 (session "gbo_fable5")
       (compartments recentred; "Reset size" clears). For aligning similar
       modules. 46 tests passing.
 
+- [x] **Spacer heights / orientation / Gridfinity** (twelfth pass,
+      2026-07-11): Anycubic Kobra 3 preset; global spacerHeightOffset +
+      per-spacer "Lower by" (heightKey: merge id or positional s:layer:x,y);
+      group fixedOrientation (lock compartment L×W); H override targets
+      packed height (lid-plate mismatch fix); gridfinityBase (42 mm snap +
+      tapered feet, snug expansion disabled, persist v6). 51 tests passing.
+
 ## Not yet verified 🔍
 
 - [ ] Hands-on browser test: open `npm run dev`, click **Load sample**, confirm

@@ -104,6 +104,25 @@ export function SetupPanel() {
           />
           <span>Fill leftover gaps with printed spacer boxes (stops modules sliding around)</span>
         </label>
+        <div className="field-row">
+          <NumField
+            label="Spacer height offset (mm)"
+            value={printer.spacerHeightOffset ?? 0}
+            title="Lower ALL spacers below their layer height, leaving finger room to lift modules out. Select a spacer in the preview to override per spacer."
+            onChange={(v) => setPrinter({ spacerHeightOffset: Math.max(0, v) })}
+          />
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={printer.gridfinityBase ?? false}
+            onChange={(e) => setPrinter({ gridfinityBase: e.target.checked })}
+          />
+          <span>
+            Gridfinity base — snap containers to the 42 mm grid and add baseplate feet (+
+            {'4.75'} mm height; wall-thickening snug fit is disabled so grid sizes stay exact)
+          </span>
+        </label>
         <p className="hint">
           Height syncing (shorter modules raised to a flat deck) is the “Sync heights” button in
           the preview.

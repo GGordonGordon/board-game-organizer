@@ -73,6 +73,7 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
   const removeSpacerMerge = useStore((s) => s.removeSpacerMerge)
   const setModuleSize = useStore((s) => s.setModuleSize)
   const clearModuleSize = useStore((s) => s.clearModuleSize)
+  const setSpacerHeightOffset = useStore((s) => s.setSpacerHeightOffset)
 
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -487,13 +488,17 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
                 <label
                   className="coord"
                   key={dim}
-                  title="Grow the printed size beyond the computed minimum, e.g. to match a neighbouring module (values below the minimum are ignored)"
+                  title={
+                    dim === 'height'
+                      ? 'Total packed height incl. the lid plate for lidded boxes — matching two modules’ H makes them level in the box (values below the minimum are ignored)'
+                      : 'Grow the printed size beyond the computed minimum, e.g. to match a neighbouring module (values below the minimum are ignored)'
+                  }
                 >
                   <span>{dim === 'length' ? 'L' : dim === 'width' ? 'W' : 'H'}</span>
                   <input
                     type="number"
                     step={0.5}
-                    value={mm(selectedModule.outer[dim])}
+                    value={mm(dim === 'height' ? selectedModule.packedHeight : selectedModule.outer[dim])}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value)
                       if (Number.isFinite(v)) setModuleSize(selectedModule.id, { [dim]: v })
@@ -534,6 +539,28 @@ export function Preview3D({ project, result }: { project: Project; result: PackR
               )}
               <button onClick={() => removeSpacerMerge(selected.moduleId)}>Split combined spacer</button>
             </>
+          )}
+          {isSpacer(selected) && selectedModule.heightKey && (
+            <label
+              className="coord"
+              title="Lower this spacer below its layer height for finger room (overrides the global spacer height offset)"
+            >
+              <span>Lower by</span>
+              <input
+                type="number"
+                step={1}
+                min={0}
+                value={
+                  project.spacerHeightOffsets?.[selectedModule.heightKey] ??
+                  project.printer.spacerHeightOffset ??
+                  0
+                }
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value)
+                  setSpacerHeightOffset(selectedModule.heightKey!, Number.isFinite(v) ? v : undefined)
+                }}
+              />
+            </label>
           )}
           {isSpacer(selected) && !selectedModule.rects && (
             <span className="muted">⌘/Ctrl-click other spacers to combine</span>

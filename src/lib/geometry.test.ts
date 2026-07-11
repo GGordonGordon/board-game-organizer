@@ -132,6 +132,49 @@ describe('buildPrintParts', () => {
     expect(vOpen).toBeLessThan(vWalls)
   })
 
+  it('adds gridfinity feet below the body when gridCells is set', async () => {
+    const project = emptyProject()
+    project.printer.gridfinityBase = true
+    project.groups = [
+      { id: 'g1', name: 'Tiles', containerType: 'stack-tray', perPlayer: false, color: '#fff' },
+    ]
+    project.components = [
+      { shape: 'rect', id: 'c1', name: 'Tile', length: 60, width: 60, thickness: 2, quantity: 10, groupId: 'g1' },
+    ]
+    const { modules } = computeModules(project)
+    const spec = modules[0]
+    expect(spec.gridCells).toEqual({ x: 2, y: 2 })
+    const variant = {
+      key: 'k',
+      moduleId: spec.id,
+      name: spec.name,
+      count: 1,
+      outer: { ...spec.outer },
+      extra: { length: 0, width: 0, height: 0 },
+    }
+    const parts = await buildPrintParts(spec, variant, project.printer)
+    const mesh = parts[0].mesh
+    // below the feet height the cross-section narrows to the feet (35.6–41.5
+    // per 42 mm cell): at z≈0 no vertex may sit in the 0.5 mm gap between cells
+    let minZ = Infinity
+    let maxZ = -Infinity
+    let sawFootVert = false
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const x = mesh.positions[i]
+      const z = mesh.positions[i + 2]
+      minZ = Math.min(minZ, z)
+      maxZ = Math.max(maxZ, z)
+      if (z < 0.01) {
+        sawFootVert = true
+        // bottom of feet: nothing within the seam at x ≈ 41.5..42 or outside cells
+        expect(x > 41.51 && x < 41.99).toBe(false)
+      }
+    }
+    expect(sawFootVert).toBe(true)
+    expect(minZ).toBeCloseTo(0)
+    expect(maxZ).toBeCloseTo(spec.outer.height)
+  })
+
   it('cuts a recess for every polygon shape without leaking outside the body', async () => {
     const shapes = Object.keys(POLYGON_SHAPES) as (keyof typeof POLYGON_SHAPES)[]
     const project = emptyProject()

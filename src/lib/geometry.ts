@@ -1,6 +1,18 @@
 import init from 'manifold-3d'
 import { POLYGON_SHAPES, isPolygon, type PrinterSettings } from '../types'
-import { LIP_HEIGHT, type Compartment, type ModuleSpec, type PrintVariant } from './packing'
+import {
+  GRID_BASE_H,
+  GRID_CLEARANCE,
+  GRID_PITCH,
+  LIP_HEIGHT,
+  type Compartment,
+  type ModuleSpec,
+  type PrintVariant,
+} from './packing'
+
+/** Gridfinity foot: bottom width and corner radius (tapers to 41.5 at the top) */
+export const GRID_FOOT_BOTTOM = 35.6
+export const GRID_FOOT_RADIUS = 3.2
 
 type ManifoldModule = Awaited<ReturnType<typeof init>>
 type ManifoldStatic = ManifoldModule['Manifold']
@@ -70,6 +82,35 @@ function shapeCavity(M: ManifoldStatic, c: Compartment, height: number, cc: numb
 }
 
 /**
+ * Gridfinity base: raise the body by GRID_BASE_H and add one tapered
+ * rounded-square foot per 42 mm cell, so the module clicks onto a standard
+ * Gridfinity baseplate. Feet taper 35.6 → 41.5 mm over the base height.
+ */
+function withGridBase(M: ManifoldModule, spec: ModuleSpec, L: number, W: number, body: Solid): Solid {
+  if (!spec.gridCells) return body
+  const { CrossSection } = M
+  const topW = GRID_PITCH - GRID_CLEARANCE
+  const cs = CrossSection.square(
+    [GRID_FOOT_BOTTOM - 2 * GRID_FOOT_RADIUS, GRID_FOOT_BOTTOM - 2 * GRID_FOOT_RADIUS],
+    true,
+  ).offset(GRID_FOOT_RADIUS, 'Round', 2, 32)
+  const foot = cs.extrude(GRID_BASE_H, 4, 0, topW / GRID_FOOT_BOTTOM)
+  const snapX = spec.gridCells.x * GRID_PITCH - GRID_CLEARANCE
+  const snapY = spec.gridCells.y * GRID_PITCH - GRID_CLEARANCE
+  const startX = (L - snapX) / 2
+  const startY = (W - snapY) / 2
+  let out = body.translate([0, 0, GRID_BASE_H])
+  for (let i = 0; i < spec.gridCells.x; i++) {
+    for (let j = 0; j < spec.gridCells.y; j++) {
+      out = out.add(
+        foot.translate([startX + i * GRID_PITCH + topW / 2, startY + j * GRID_PITCH + topW / 2, 0]),
+      )
+    }
+  }
+  return out
+}
+
+/**
  * Build the printable solid(s) for one print variant of a module.
  * The variant may be wider/longer than the spec (snug-fit expansion);
  * the compartment layout is centred, so the perimeter walls thicken evenly.
@@ -79,8 +120,11 @@ export async function buildPrintParts(
   variant: PrintVariant,
   s: PrinterSettings,
 ): Promise<PrintPart[]> {
-  const { Manifold } = await getManifold()
+  const M = await getManifold()
+  const { Manifold } = M
   const cube = (x: number, y: number, z: number) => Manifold.cube([x, y, z])
+  /** gridfinity feet height under this module (0 when off) */
+  const base = spec.gridCells ? GRID_BASE_H : 0
 
   const L = variant.outer.length
   const W = variant.outer.width
@@ -128,8 +172,9 @@ export async function buildPrintParts(
   // pinch the stack/row out — a well is a tray with the pieces stood on edge
   if (spec.type === 'stack-tray' || spec.type === 'well') {
     const c = spec.compartments[0]
-    // height sync raises the floor, keeping the contents flush with the rim
-    const H = variant.outer.height
+    // height sync raises the floor, keeping the contents flush with the rim;
+    // gridfinity feet are added below the body afterwards
+    const H = variant.outer.height - base
     const floorZ = H - c.depth
     const cavX = (L - c.length) / 2
     const cavY = (W - c.width) / 2
@@ -142,13 +187,14 @@ export async function buildPrintParts(
     body = body.subtract(
       cube(L + 2, notchW, H - notchBottom + 1).translate([-1, (W - notchW) / 2, notchBottom]),
     )
-    return [{ name: variant.name, mesh: toMeshData(body) }]
+    return [{ name: variant.name, mesh: toMeshData(withGridBase(M, spec, L, W, body)) }]
   }
 
   // ----- lidded box -----
   // floor + depth + lip region, plus any height-sync growth (cavities top out
-  // at the lip base, so extra height thickens the floor under them)
-  const bodyH = variant.outer.height
+  // at the lip base, so extra height thickens the floor under them); the
+  // gridfinity feet height is excluded here and added back below the body
+  const bodyH = variant.outer.height - base
   const lipT = Math.min(s.wallThickness, 1.6)
   const plateT = s.floorThickness
 
@@ -194,7 +240,7 @@ export async function buildPrintParts(
   }
 
   return [
-    { name: `${variant.name} box`, mesh: toMeshData(body) },
+    { name: `${variant.name} box`, mesh: toMeshData(withGridBase(M, spec, L, W, body)) },
     { name: `${variant.name} lid`, mesh: toMeshData(lid) },
   ]
 }

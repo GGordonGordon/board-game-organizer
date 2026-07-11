@@ -300,7 +300,9 @@ describe('computeModules', () => {
     const trayBase = base.find((m) => m.type === 'stack-tray')!
 
     p.moduleSizes = {
-      [lidBase.id]: { length: lidBase.outer.length + 20, height: lidBase.outer.height + 10 },
+      // height targets the PACKED height (incl. lid plate) so container
+      // types can be matched 1:1
+      [lidBase.id]: { length: lidBase.outer.length + 20, height: lidBase.packedHeight + 10 },
       [trayBase.id]: { width: 100, length: 1 }, // length below minimum → ignored
     }
     const { modules } = computeModules(p)
@@ -308,13 +310,65 @@ describe('computeModules', () => {
     const tray = modules.find((m) => m.type === 'stack-tray')!
 
     expect(lid.outer.length).toBeCloseTo(lidBase.outer.length + 20)
-    expect(lid.outer.height).toBeCloseTo(lidBase.outer.height + 10)
     expect(lid.packedHeight).toBeCloseTo(lidBase.packedHeight + 10)
+    expect(lid.outer.height).toBeCloseTo(lidBase.outer.height + 10)
     // compartments recentred: shifted by half the growth
     expect(lid.compartments[0].x).toBeCloseTo(lidBase.compartments[0].x + 10)
 
     expect(tray.outer.width).toBeCloseTo(100)
     expect(tray.outer.length).toBeCloseTo(trayBase.outer.length) // grow-only
+  })
+
+  it('matching a lidded box H to a well H makes their packed heights equal', () => {
+    const p = project({
+      groups: [
+        { id: 'g1', name: 'Deck', containerType: 'well', perPlayer: false, color: '#fff' },
+        { id: 'g2', name: 'Bits', containerType: 'lidded-box', perPlayer: false, color: '#fff' },
+      ],
+      components: [
+        { shape: 'card' as const, id: 'c1', name: 'Cards', length: 56, width: 87, thickness: 0.3, quantity: 40, groupId: 'g1' },
+        { shape: 'rect' as const, id: 'c2', name: 'Cube', length: 10, width: 10, thickness: 10, quantity: 4, groupId: 'g2' },
+      ],
+    })
+    const base = computeModules(p).modules
+    const well = base.find((m) => m.type === 'well')!
+    const lid = base.find((m) => m.type === 'lidded-box')!
+    expect(lid.packedHeight).toBeLessThan(well.packedHeight) // room to grow
+    p.moduleSizes = { [lid.id]: { height: well.packedHeight } }
+    const { modules } = computeModules(p)
+    const lid2 = modules.find((m) => m.type === 'lidded-box')!
+    expect(lid2.packedHeight).toBeCloseTo(well.packedHeight)
+  })
+
+  it('locks compartment orientation when the group asks for it', () => {
+    // three 30×60 piece types → three 30×60 compartments
+    const mk = (fixedOrientation: boolean) =>
+      project({
+        groups: [
+          { id: 'g1', name: 'Boxes', containerType: 'lidded-box', perPlayer: false, color: '#fff', fixedOrientation },
+        ],
+        components: [1, 2, 3].map((i) => ({
+          shape: 'rect' as const,
+          id: `c${i}`,
+          name: `Piece ${i}`,
+          length: 30,
+          width: 60,
+          thickness: 10,
+          quantity: 1,
+          groupId: 'g1',
+        })),
+      })
+    // auto: pieces rotate to 60×30 and line up in a long shallow row (~180×30)
+    const auto = computeModules(mk(false)).modules[0]
+    expect(auto.outer.length).toBeGreaterThan(150)
+    // locked: 30×60 stays as entered → three side by side ≈ 90×60 + walls
+    const locked = computeModules(mk(true)).modules[0]
+    expect(locked.outer.length).toBeLessThan(110)
+    expect(locked.outer.width).toBeGreaterThan(60)
+    for (const c of locked.compartments) {
+      expect(c.length).toBeCloseTo(30 + 2 * mk(true).printer.componentClearance)
+      expect(c.width).toBeCloseTo(60 + 2 * mk(true).printer.componentClearance)
+    }
   })
 
   it('sizes a stack tray from the tile stack', () => {
@@ -629,6 +683,62 @@ describe('computeLayout', () => {
     // the area is still tiled by regular auto spacers
     const area = res.instances.reduce((s, i) => s + i.length * i.width, 0)
     expect(area / (p.box.length * p.box.width)).toBeGreaterThan(0.95)
+  })
+
+  it('lowers all spacers by the global height offset and per-spacer overrides win', () => {
+    const p = project({
+      groups: [
+        { id: 'g1', name: 'Tiles', containerType: 'stack-tray', perPlayer: false, color: '#0f0' },
+      ],
+      components: [
+        { shape: 'rect' as const, id: 'c1', name: 'Tile', length: 60, width: 60, thickness: 2, quantity: 20, groupId: 'g1' },
+      ],
+      printer: { ...DEFAULT_PRINTER, spacerHeightOffset: 25 },
+      manualLayout: {
+        targetLayers: 1,
+        positions: { 'g1:c1:1#0': { x: 0, y: 0, z: 0, rotated: false } },
+      },
+    })
+    const res = computeLayout(p)
+    const layerH = res.layers[0].height
+    const spacers = res.modules.filter((m) => m.type === 'spacer')
+    expect(spacers.length).toBeGreaterThan(0)
+    for (const sp of spacers) {
+      expect(sp.outer.height).toBeCloseTo(layerH - 25)
+      expect(sp.heightKey).toBeTruthy()
+    }
+
+    // per-spacer override: force one spacer back to full height
+    p.spacerHeightOffsets = { [spacers[0].heightKey!]: 0 }
+    const res2 = computeLayout(p)
+    const overridden = res2.modules.find((m) => m.heightKey === spacers[0].heightKey)!
+    expect(overridden.outer.height).toBeCloseTo(layerH)
+    const others = res2.modules.filter((m) => m.type === 'spacer' && m.id !== overridden.id)
+    for (const sp of others) expect(sp.outer.height).toBeCloseTo(layerH - 25)
+  })
+
+  it('snaps modules to the gridfinity grid and disables snug expansion', () => {
+    const p = project({
+      groups: [
+        { id: 'g1', name: 'Tiles', containerType: 'stack-tray', perPlayer: false, color: '#0f0' },
+      ],
+      components: [
+        { shape: 'rect' as const, id: 'c1', name: 'Tile', length: 60, width: 60, thickness: 2, quantity: 15, groupId: 'g1' },
+      ],
+      printer: { ...DEFAULT_PRINTER, gridfinityBase: true },
+    })
+    const res = computeLayout(p)
+    const tray = res.modules.find((m) => m.type === 'stack-tray')!
+    // 60ish snaps to 2 cells: 2×42 − 0.5 = 83.5
+    expect(tray.outer.length).toBeCloseTo(83.5)
+    expect(tray.outer.width).toBeCloseTo(83.5)
+    expect(tray.gridCells).toEqual({ x: 2, y: 2 })
+    // feet height is included in the packed height
+    expect(tray.packedHeight).toBeGreaterThan(30 + 4.75 - 1)
+    // no snug expansion: the placed instance keeps the exact grid footprint
+    const inst = res.instances.find((i) => i.moduleId === tray.id)!
+    expect(inst.length).toBeCloseTo(83.5)
+    expect(inst.width).toBeCloseTo(83.5)
   })
 
   it('applies a rotated manual placement', () => {

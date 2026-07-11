@@ -101,6 +101,12 @@ export interface ComponentGroup {
   perPlayer: boolean
   /** preview colour */
   color: string
+  /**
+   * keep compartments exactly as the entered length × width (no 90° auto-
+   * rotation while packing) — e.g. three 30×60 pieces side by side make a
+   * ~90×60 box instead of a 180×30 row
+   */
+  fixedOrientation?: boolean
 }
 
 export interface PrinterSettings {
@@ -116,6 +122,10 @@ export interface PrinterSettings {
   componentClearance: number
   /** print hollow spacer boxes to fill leftover floor gaps so modules can't slide */
   generateSpacers: boolean
+  /** lower ALL spacers below their layer height by this many mm (finger room to lift modules out) */
+  spacerHeightOffset: number
+  /** snap container footprints to the 42 mm Gridfinity grid and add base feet */
+  gridfinityBase: boolean
   /**
    * raise shorter modules so everything in a layer is the same height (flat
    * deck): trays/wells get a thicker floor (contents stay flush with the top),
@@ -146,6 +156,7 @@ export const PRINTER_PRESETS: PrinterPreset[] = [
   { id: 'prusa-mini', name: 'Prusa MINI+', bedLength: 180, bedWidth: 180, bedHeight: 180 },
   { id: 'prusa-mk4', name: 'Prusa MK3S / MK4', bedLength: 250, bedWidth: 210, bedHeight: 220 },
   { id: 'prusa-xl', name: 'Prusa XL', bedLength: 360, bedWidth: 360, bedHeight: 360 },
+  { id: 'anycubic-kobra-3', name: 'Anycubic Kobra 3 / v2', bedLength: 255, bedWidth: 255, bedHeight: 260 },
   { id: 'ender-3', name: 'Creality Ender 3 / V2 / V3', bedLength: 220, bedWidth: 220, bedHeight: 250 },
   { id: 'k1-max', name: 'Creality K1 Max', bedLength: 300, bedWidth: 300, bedHeight: 300 },
   { id: 'neptune-4', name: 'Elegoo Neptune 4', bedLength: 225, bedWidth: 225, bedHeight: 265 },
@@ -202,9 +213,16 @@ export interface Project {
   /**
    * per-module printed-size overrides (mm), keyed by module id. Grow-only:
    * values below the computed minimum are ignored. Lets users match the
-   * sizes of similar modules so they align in the box.
+   * sizes of similar modules so they align in the box. `height` targets the
+   * PACKED height (incl. lid plate for lidded boxes) so container types match 1:1.
    */
   moduleSizes?: Record<string, ModuleSizeOverride>
+  /**
+   * per-spacer height lowering (mm below layer height), overriding the global
+   * printer.spacerHeightOffset. Keyed by merge id for combined spacers, or a
+   * positional key for auto spacers (dropped silently when the layout moves).
+   */
+  spacerHeightOffsets?: Record<string, number>
 }
 
 export interface ModuleSizeOverride {
@@ -223,4 +241,6 @@ export const DEFAULT_PRINTER: PrinterSettings = {
   componentClearance: 0.4,
   generateSpacers: true,
   syncModuleHeights: false, // opt-in via the "Sync heights" button in the preview
+  spacerHeightOffset: 0,
+  gridfinityBase: false,
 }

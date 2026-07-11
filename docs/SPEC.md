@@ -164,6 +164,25 @@ ZIP:
   Users tweak dimensions and re-export from OpenSCAD. Generator in
   `src/lib/scad.ts` — must stay in sync with geometry.ts.
 
+## Spacer heights, orientation lock, Gridfinity (twelfth pass, 2026-07-11)
+
+- **Spacer height offsets**: global `printer.spacerHeightOffset` lowers ALL
+  spacers below their layer height (finger room to lift modules out);
+  per-spacer overrides in `project.spacerHeightOffsets` (selected spacer →
+  "Lower by" input) keyed by merge id or a positional key (auto spacers;
+  dropped silently when the layout moves). Floor of floorThickness+2 mm.
+- **Orientation lock**: per-group `fixedOrientation` — compartments keep the
+  entered length × width (no 90° auto-rotation in shelf packing), e.g. three
+  30×60 pieces make a ~90×60 box instead of a 180×30 row.
+- **Height-match fix**: module size override H now targets the PACKED height
+  (incl. lid plate), and the preview's H field shows packed height — so a
+  box-with-lid set to a well's H is genuinely level with it.
+- **Gridfinity** (`printer.gridfinityBase`): container footprints snap UP to
+  n×42 − 0.5 mm, +4.75 mm base with one tapered rounded-square foot per cell
+  (35.6 → 41.5 mm, r≈3.2–3.75 — drops into standard baseplates; simplified
+  profile, no stacking lip). Wall-thickening snug fit is disabled so grid
+  dims stay exact; spacers are unaffected. Feet mirrored in scad.ts.
+
 ## Out of scope for v1 (candidate roadmap)
 
 - Card wells (cards stored on edge / angled for browsing — flat stacks exist today)

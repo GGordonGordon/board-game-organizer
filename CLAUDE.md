@@ -59,8 +59,14 @@ jszip (bundle export). No backend.
      Spacer fill is shared by auto+manual (`fillLayerSpacers`): user merges
      from project.spacerMerges are claimed first (one module with `rects`,
      L-shapes allowed, warn-only on bed overflow), then free rects get
-     auto spacers. Bed checks everywhere use printer.bed* (set via
-     PRINTER_PRESETS dropdown or custom).
+     auto spacers. Spacer heights: layer height − offset (global
+     printer.spacerHeightOffset, per-spacer project.spacerHeightOffsets by
+     ModuleSpec.heightKey). Bed checks everywhere use printer.bed* (set via
+     PRINTER_PRESETS dropdown or custom). moduleSizes H overrides target
+     PACKED height (incl. lid plate). group.fixedOrientation disables 90°
+     compartment rotation. printer.gridfinityBase snaps footprints to
+     n×42−0.5, adds GRID_BASE_H feet (gridCells on the spec; geometry+scad
+     both add feet) and disables snug expansion.
 - `src/lib/geometry.ts` — manifold-3d CSG. Cavities are cut with
   `shapeCavity()` — rect → cube, circle → 64-segment cylinder, polygons →
   n-segment cylinder per POLYGON_SHAPES (rotates with the compartment) — so

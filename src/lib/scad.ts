@@ -1,5 +1,14 @@
 import { POLYGON_SHAPES, isPolygon, type PrinterSettings } from '../types'
-import { LIP_HEIGHT, type Compartment, type ModuleSpec, type PrintVariant } from './packing'
+import {
+  GRID_BASE_H,
+  GRID_CLEARANCE,
+  GRID_PITCH,
+  LIP_HEIGHT,
+  type Compartment,
+  type ModuleSpec,
+  type PrintVariant,
+} from './packing'
+import { GRID_FOOT_BOTTOM, GRID_FOOT_RADIUS } from './geometry'
 
 const n = (v: number) => {
   const r = Math.round(v * 1000) / 1000
@@ -18,6 +27,27 @@ function scadCavity(c: Compartment, height: number, cc: number): string {
     return `translate([${n(c.length / 2)}, ${n(c.width / 2)}, 0]) rotate([0, 0, ${n(rot)}]) cylinder(h=${n(height)}, r=${n(R)}, $fn=${def.sides});`
   }
   return `cube([${n(c.length)}, ${n(c.width)}, ${n(height)}]);`
+}
+
+/** gridfinity feet lines + the z-lift the body needs (mirrors geometry.ts withGridBase) */
+function scadGridBase(spec: ModuleSpec, L: number, W: number): string[] {
+  if (!spec.gridCells) return []
+  const topW = GRID_PITCH - GRID_CLEARANCE
+  const inner = GRID_FOOT_BOTTOM - 2 * GRID_FOOT_RADIUS
+  const snapX = spec.gridCells.x * GRID_PITCH - GRID_CLEARANCE
+  const snapY = spec.gridCells.y * GRID_PITCH - GRID_CLEARANCE
+  const lines = [
+    `// Gridfinity feet: one tapered foot per 42 mm cell (${spec.gridCells.x} × ${spec.gridCells.y})`,
+    `module gf_foot() { linear_extrude(height=${n(GRID_BASE_H)}, scale=${n(topW / GRID_FOOT_BOTTOM)}) offset(r=${n(GRID_FOOT_RADIUS)}) square(${n(inner)}, center=true); }`,
+  ]
+  for (let i = 0; i < spec.gridCells.x; i++) {
+    for (let j = 0; j < spec.gridCells.y; j++) {
+      const cx = (L - snapX) / 2 + i * GRID_PITCH + topW / 2
+      const cy = (W - snapY) / 2 + j * GRID_PITCH + topW / 2
+      lines.push(`translate([${n(cx)}, ${n(cy)}, 0]) gf_foot();`)
+    }
+  }
+  return lines
 }
 
 /**
@@ -86,7 +116,9 @@ export function moduleToScad(spec: ModuleSpec, variant: PrintVariant, s: Printer
 
   if (spec.type === 'stack-tray' || spec.type === 'well') {
     const c = spec.compartments[0]
-    const floorZ = H - c.depth
+    const base = spec.gridCells ? GRID_BASE_H : 0
+    const bodyH = H - base
+    const floorZ = bodyH - c.depth
     const cavX = (L - c.length) / 2
     const cavY = (W - c.width) / 2
     const notchW = Math.min(20, c.width * 0.6)
@@ -94,19 +126,21 @@ export function moduleToScad(spec: ModuleSpec, variant: PrintVariant, s: Printer
     return [
       ...head,
       `// ${spec.type === 'well' ? 'Well: pieces stand on edge' : 'Stack tray: pieces lie flat'} (${c.label})`,
-      `difference() {`,
-      `  cube([${n(L)}, ${n(W)}, ${n(H)}]);`,
+      `translate([0, 0, ${n(base)}]) difference() {`,
+      `  cube([${n(L)}, ${n(W)}, ${n(bodyH)}]);`,
       `  // cavity (floor at z=${n(floorZ)})`,
       `  translate([${n(cavX)}, ${n(cavY)}, ${n(floorZ)}]) ${scadCavity(c, c.depth + 1, cc)}`,
       `  // finger notches through both end walls`,
-      `  translate([-1, ${n((W - notchW) / 2)}, ${n(notchBottom)}]) cube([${n(L + 2)}, ${n(notchW)}, ${n(H)}]);`,
+      `  translate([-1, ${n((W - notchW) / 2)}, ${n(notchBottom)}]) cube([${n(L + 2)}, ${n(notchW)}, ${n(bodyH)}]);`,
       `}`,
+      ...scadGridBase(spec, L, W),
       ``,
     ].join('\n')
   }
 
   // ----- lidded box: body + lid side by side -----
-  const bodyH = H
+  const base = spec.gridCells ? GRID_BASE_H : 0
+  const bodyH = H - base
   const lipT = Math.min(wall, 1.6)
   const plateT = s.floorThickness
   const inL = L - 2 * wall
@@ -116,7 +150,12 @@ export function moduleToScad(spec: ModuleSpec, variant: PrintVariant, s: Printer
   const lipOuterW = inW - 2 * s.lidClearance
   const lipH = LIP_HEIGHT - 0.3
 
-  const lines = [...head, `// ---- box body ----`, `difference() {`, `  cube([${n(L)}, ${n(W)}, ${n(bodyH)}]);`]
+  const lines = [
+    ...head,
+    `// ---- box body ----`,
+    `translate([0, 0, ${n(base)}]) difference() {`,
+    `  cube([${n(L)}, ${n(W)}, ${n(bodyH)}]);`,
+  ]
   for (const c of spec.compartments) {
     const x = wall + variant.extra.length / 2 + c.x
     const y = wall + variant.extra.width / 2 + c.y
@@ -139,7 +178,8 @@ export function moduleToScad(spec: ModuleSpec, variant: PrintVariant, s: Printer
       `  translate([${n(wall)}, ${n(wall)}, ${n(bodyH - LIP_HEIGHT)}]) cube([${n(inL)}, ${n(inW)}, ${n(LIP_HEIGHT + 1)}]);`,
     )
   }
-  lines.push(`}`, ``, `// ---- lid (printed plate-down) ----`, `translate([${n(L + 10)}, 0, 0]) union() {`)
+  lines.push(`}`, ...scadGridBase(spec, L, W))
+  lines.push(``, `// ---- lid (printed plate-down) ----`, `translate([${n(L + 10)}, 0, 0]) union() {`)
   lines.push(`  cube([${n(L)}, ${n(W)}, ${n(plateT)}]);`)
   if (lipOuterL > 1 && lipOuterW > 1) {
     lines.push(

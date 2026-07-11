@@ -25,6 +25,9 @@ export function GroupsPanel() {
               <th>Name</th>
               <th>Container</th>
               <th>Per player</th>
+              <th title="Keep compartments exactly as the entered length × width — no 90° auto-rotation while packing">
+                Lock orient.
+              </th>
               <th></th>
             </tr>
           </thead>
@@ -59,6 +62,14 @@ export function GroupsPanel() {
                     type="checkbox"
                     checked={g.perPlayer}
                     onChange={(e) => updateGroup(g.id, { perPlayer: e.target.checked })}
+                  />
+                </td>
+                <td className="center">
+                  <input
+                    type="checkbox"
+                    checked={g.fixedOrientation ?? false}
+                    title="Keep compartments exactly as the entered length × width"
+                    onChange={(e) => updateGroup(g.id, { fixedOrientation: e.target.checked })}
                   />
                 </td>
                 <td>

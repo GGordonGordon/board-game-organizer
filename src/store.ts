@@ -102,6 +102,7 @@ interface Store {
   removeSpacerMerge: (id: string) => void
   setModuleSize: (id: string, patch: ModuleSizeOverride) => void
   clearModuleSize: (id: string) => void
+  setSpacerHeightOffset: (key: string, mm: number | undefined) => void
   loadProject: (p: Project) => void
   loadSample: () => void
   reset: () => void
@@ -226,6 +227,13 @@ export const useStore = create<Store>()(
           delete sizes[id]
           return { project: { ...s.project, moduleSizes: sizes } }
         }),
+      setSpacerHeightOffset: (key, mm) =>
+        set((s) => {
+          const offsets = { ...(s.project.spacerHeightOffsets ?? {}) }
+          if (mm === undefined || !Number.isFinite(mm)) delete offsets[key]
+          else offsets[key] = Math.max(0, mm)
+          return { project: { ...s.project, spacerHeightOffsets: offsets } }
+        }),
 
       loadProject: (project) => set({ project }),
       loadSample: () => set({ project: sampleProject() }),
@@ -233,7 +241,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'bgo-project',
-      version: 5, // migrate() backfills any printer settings added since v1
+      version: 6, // migrate() backfills any printer settings added since v1
       partialize: (s) => ({ project: s.project }),
       migrate: (persisted, version) => {
         // v1 components had no shape field; v2 printer had no generateSpacers;

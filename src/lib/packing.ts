@@ -103,7 +103,16 @@ export interface ModuleSpec {
   rects?: SpacerRect[]
   /** combined spacers: hollow as one open shell (no walls at rect seams) */
   removeInnerWalls?: boolean
+  /** spacers: key into project.spacerHeightOffsets for per-spacer lowering */
+  heightKey?: string
+  /** gridfinity: feet grid (42 mm cells) under this module */
+  gridCells?: { x: number; y: number }
 }
+
+/** Gridfinity: grid pitch, footprint clearance, and base-feet height (mm) */
+export const GRID_PITCH = 42
+export const GRID_CLEARANCE = 0.5
+export const GRID_BASE_H = 4.75
 
 export interface PlacedInstance {
   id: string
@@ -345,6 +354,7 @@ export function computeModules(
             warnings: [],
           }
           applySizeOverride(mod, project)
+          applyGridfinity(mod, project)
           checkModuleSize(mod, project, warnings)
           modules.push(mod)
         }
@@ -400,6 +410,7 @@ export function computeModules(
             warnings: [],
           }
           applySizeOverride(mod, project)
+          applyGridfinity(mod, project)
           checkModuleSize(mod, project, warnings)
           modules.push(mod)
         }
@@ -411,7 +422,8 @@ export function computeModules(
       const stacks = comps.flatMap((c) => splitStacks(c, maxDepth))
       const rects: ShelfRect[] = stacks.map((st, i) => {
         const cav = cavityFootprint(st.comp, s.componentClearance)
-        return { id: String(i), l: cav.l, w: cav.w, canRotate: true }
+        // fixedOrientation: compartments keep the entered length × width
+        return { id: String(i), l: cav.l, w: cav.w, canRotate: !group.fixedOrientation }
       })
       const binL = Math.max(1, box.length - 2 * s.wallThickness)
       const binW = Math.max(1, box.width - 2 * s.wallThickness)
@@ -459,6 +471,7 @@ export function computeModules(
         )
       }
       applySizeOverride(mod, project)
+      applyGridfinity(mod, project)
       checkModuleSize(mod, project, warnings)
       modules.push(mod)
     }
@@ -471,14 +484,16 @@ export function computeModules(
 /**
  * Grow a module to its user-set size override (never shrink below the
  * computed minimum). Extra material thickens the walls; the compartment
- * layout is re-centred so contents stay in the middle.
+ * layout is re-centred so contents stay in the middle. The height override
+ * targets the PACKED height (incl. lid plate for lidded boxes), so matching
+ * two container types' H values makes them genuinely level in the box.
  */
 function applySizeOverride(mod: ModuleSpec, project: Project) {
   const o = project.moduleSizes?.[mod.id]
   if (!o) return
   const dL = Math.max(0, (o.length ?? 0) - mod.outer.length)
   const dW = Math.max(0, (o.width ?? 0) - mod.outer.width)
-  const dH = Math.max(0, (o.height ?? 0) - mod.outer.height)
+  const dH = Math.max(0, (o.height ?? 0) - mod.packedHeight)
   if (dL <= 0 && dW <= 0 && dH <= 0) return
   mod.outer = {
     length: mod.outer.length + dL,
@@ -486,6 +501,27 @@ function applySizeOverride(mod: ModuleSpec, project: Project) {
     height: mod.outer.height + dH,
   }
   mod.packedHeight += dH
+  for (const c of mod.compartments) {
+    c.x += dL / 2
+    c.y += dW / 2
+  }
+}
+
+/**
+ * Gridfinity: snap the footprint UP to n×42 − 0.5 mm and add the base-feet
+ * height. `gridCells` tells geometry how many feet to print.
+ */
+function applyGridfinity(mod: ModuleSpec, project: Project) {
+  if (!project.printer.gridfinityBase || mod.type === 'spacer') return
+  const cellsX = Math.max(1, Math.ceil((mod.outer.length + GRID_CLEARANCE) / GRID_PITCH))
+  const cellsY = Math.max(1, Math.ceil((mod.outer.width + GRID_CLEARANCE) / GRID_PITCH))
+  const newL = cellsX * GRID_PITCH - GRID_CLEARANCE
+  const newW = cellsY * GRID_PITCH - GRID_CLEARANCE
+  const dL = newL - mod.outer.length
+  const dW = newW - mod.outer.width
+  mod.outer = { length: newL, width: newW, height: mod.outer.height + GRID_BASE_H }
+  mod.packedHeight += GRID_BASE_H
+  mod.gridCells = { x: cellsX, y: cellsY }
   for (const c of mod.compartments) {
     c.x += dL / 2
     c.y += dW / 2
@@ -523,6 +559,7 @@ function createSpacer(
   layer: number,
   z: number,
   printer: PrinterSettings,
+  heightKey?: string,
 ): { module: ModuleSpec; instances: PlacedInstance[]; warning?: string } {
   const { bedLength, bedWidth, bedHeight } = printer
   const bedMax = Math.max(bedLength, bedWidth)
@@ -550,6 +587,7 @@ function createSpacer(
     hasLid: false,
     copies: sections,
     warnings: [],
+    heightKey,
   }
   const instances: PlacedInstance[] = []
   for (let i = 0; i < nX; i++) {
@@ -610,6 +648,18 @@ interface SpacerFillCtx {
   spacerModules: ModuleSpec[]
   instances: PlacedInstance[]
   warnings: string[]
+  /** per-spacer lowering (mm), keyed by merge id or positional key */
+  heightOffsets: Record<string, number>
+}
+
+/** positional key for an auto spacer — stable while the layout around it is */
+export const spacerKey = (layerIdx: number, x: number, y: number) =>
+  `s:${layerIdx}:${Math.round(x)}x${Math.round(y)}`
+
+/** spacer height after per-spacer or global lowering (never below a printable floor) */
+function spacerHeight(ctx: SpacerFillCtx, key: string, layerHeight: number): number {
+  const offset = ctx.heightOffsets[key] ?? ctx.printer.spacerHeightOffset ?? 0
+  return Math.max(ctx.printer.floorThickness + 2, layerHeight - Math.max(0, offset))
 }
 
 /**
@@ -649,13 +699,14 @@ function fillLayerSpacers(
     const minY = Math.min(...merge.rects.map((r) => r.y))
     const L = Math.max(...merge.rects.map((r) => r.x + r.l)) - minX
     const W = Math.max(...merge.rects.map((r) => r.y + r.w)) - minY
+    const mergeH = spacerHeight(ctx, merge.id, height)
     ctx.spacerModules.push({
       id: merge.id,
       groupId: '',
       name: `Combined spacer (${merge.rects.length} pieces)`,
       type: 'spacer',
-      outer: { length: L, width: W, height },
-      packedHeight: height,
+      outer: { length: L, width: W, height: mergeH },
+      packedHeight: mergeH,
       interiorDepth: 0,
       compartments: [],
       hasLid: false,
@@ -663,6 +714,7 @@ function fillLayerSpacers(
       warnings: [],
       rects: merge.rects.map((r) => ({ ...r, x: r.x - minX, y: r.y - minY })),
       removeInnerWalls: merge.removeInnerWalls,
+      heightKey: merge.id,
     })
     ctx.instances.push({
       id: `${merge.id}#0`,
@@ -674,7 +726,7 @@ function fillLayerSpacers(
       layer: layerIdx,
       length: L,
       width: W,
-      height,
+      height: mergeH,
     })
     const { bedLength, bedWidth } = printer
     const fitsBed =
@@ -689,7 +741,9 @@ function fillLayerSpacers(
   for (const f of free) {
     if (f.l < MIN_SPACER || f.w < MIN_SPACER) continue
     ctx.state.count++
-    const out = createSpacer(ctx.state.count, f.l, f.w, f.x, f.y, height, layerIdx, z, printer)
+    const key = spacerKey(layerIdx, f.x, f.y)
+    const h = spacerHeight(ctx, key, height)
+    const out = createSpacer(ctx.state.count, f.l, f.w, f.x, f.y, h, layerIdx, z, printer, key)
     ctx.spacerModules.push(out.module)
     ctx.instances.push(...out.instances)
     if (out.warning) ctx.warnings.push(out.warning)
@@ -730,6 +784,9 @@ export function packLayout(modules: ModuleSpec[], project: Project): PackResult 
   const spacerModules: ModuleSpec[] = []
   const spacersOn = project.printer.generateSpacers ?? false
   const syncOn = project.printer.syncModuleHeights ?? false
+  // gridfinity: never thicken walls to fill gaps — that would break the 42 mm
+  // grid dims. All slack goes to spacers (or a warning when < MIN_SPACER).
+  const gridOn = project.printer.gridfinityBase ?? false
   let contentArea = 0
   let remaining = items
   let z = 0
@@ -758,21 +815,21 @@ export function packLayout(modules: ModuleSpec[], project: Project): PackResult 
     const nShelves = res.shelves.length
     const slackY = box.width - res.width
     const ySpacer = spacersOn && slackY >= MIN_SPACER
-    const perShelfY = ySpacer ? 0 : Math.min(slackY / nShelves, MAX_SNUG_EXPANSION)
+    const perShelfY = ySpacer || gridOn ? 0 : Math.min(slackY / nShelves, MAX_SNUG_EXPANSION)
     let residual = ySpacer ? 0 : Math.max(0, slackY - perShelfY * nShelves)
     let yCursor = 0
     for (const shelf of res.shelves) {
       const n = shelf.items.length
       const slackX = box.length - shelf.usedL
       const xSpacer = spacersOn && slackX >= MIN_SPACER
-      const perItemX = xSpacer ? 0 : Math.min(slackX / n, MAX_SNUG_EXPANSION)
+      const perItemX = xSpacer || gridOn ? 0 : Math.min(slackX / n, MAX_SNUG_EXPANSION)
       if (!xSpacer) residual = Math.max(residual, slackX - perItemX * n)
       const shelfH = shelf.w + perShelfY
       let xCursor = 0
       for (const p of shelf.items) {
         const item = byKey.get(p.id)!
         const fl = p.l + perItemX
-        let fw = Math.min(shelfH, p.w + MAX_SNUG_EXPANSION)
+        let fw = gridOn ? p.w : Math.min(shelfH, p.w + MAX_SNUG_EXPANSION)
         // item much narrower than its shelf: leave the strip for spacer fill
         if (spacersOn && shelfH - p.w >= MIN_SPACER) {
           fw = p.w
@@ -815,6 +872,7 @@ export function packLayout(modules: ModuleSpec[], project: Project): PackResult 
       printer: project.printer,
       merges: project.spacerMerges ?? [],
       usedMergeIds: new Set(),
+      heightOffsets: project.spacerHeightOffsets ?? {},
       state: { count: 0 },
       spacerModules,
       instances,
@@ -1043,6 +1101,7 @@ export function packManual(modules: ModuleSpec[], project: Project): PackResult 
     printer,
     merges: project.spacerMerges ?? [],
     usedMergeIds: new Set(),
+    heightOffsets: project.spacerHeightOffsets ?? {},
     state: { count: 0 },
     spacerModules,
     instances,
