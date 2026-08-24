@@ -1,6 +1,10 @@
 {
   "name": "bgo",
   "description": "Board Game Organizer — design and export 3D-printable storage modules for board games",
+  "author": "GGordonGordon <TheGGordonGordon@gmail.com>",
+  "bugs": {
+    "email": "TheGGordonGordon@gmail.com"
+  },
   "private": true,
   "version": "0.1.0",
   "type": "module",
