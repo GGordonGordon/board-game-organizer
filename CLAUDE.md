@@ -85,6 +85,22 @@ jszip (bundle export). No backend.
 - `src/components/*` — panels (Setup, Groups, Components, Results, Export) and
   `Preview3D` (simple colored boxes, not full CSG meshes — preview is decoupled
   from WASM on purpose).
+- `src/router.tsx` — tiny path router (no dependency): `ROUTES`, `useRoute`,
+  `navigate`, `Link`. Real paths, not hashes — wrangler's
+  `not_found_handling: single-page-application` serves index.html for all of
+  them. Adding a route means adding it to `ROUTES` *and* to the switch in
+  App.tsx.
+- `src/site.ts` — site identity/contact constants (name, contact email, tip-jar
+  and repo URLs, policy date, `SITE_URL`). Never hard-code the email or the
+  origin in a page.
+- `src/meta.ts` — `ROUTE_META` (per-route title/description) + `useRouteMeta`,
+  which keeps `<title>`, description, canonical and `og:*` in step with the
+  route. An SPA that skips this reports homepage metadata on every page.
+- `src/pages/*` — static content pages required for ad-network landing-page
+  review: About, Privacy, Terms, Contact, sharing the `Page` shell.
+  `pages.test.tsx` guards that each renders and carries a reachable mailto, that
+  every route has unique metadata, and that sitemap/robots/canonical all point
+  at `SITE_URL`.
 
 ## Invariants / gotchas
 
@@ -99,4 +115,8 @@ jszip (bundle export). No backend.
 - Legacy data (persist v1, old JSON exports) lacks `shape`; migrations default
   it to 'rect' (store.ts `migrate`, ExportPanel import).
 - manifold-3d must stay in `optimizeDeps.exclude` in vite.config.ts.
+- The site is served on one hostname,
+  `board-game-organizer.ggordongordon.com` (wrangler.jsonc `routes`, mirrored by
+  `SITE_URL`). Adding a page means adding it to `ROUTES`, `ROUTE_META` *and*
+  `public/sitemap.xml` — a test fails if they drift.
 - Geometry tests run manifold's WASM in Node — keep them Node-compatible.
