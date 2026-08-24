@@ -1,0 +1,63 @@
+# Deploys to Cloudflare on every push to main. Merging a PR is what triggers it.
+#
+# Required repository configuration (Settings -> Secrets and variables -> Actions):
+#   secret   CLOUDFLARE_API_TOKEN     scoped to Workers Scripts + Workers Routes,
+#                                     account limited to this account, zone
+#                                     limited to ggordongordon.com
+#
+# The account id is not here — it is pinned in wrangler.jsonc, so a deploy
+# targets the same account whether it runs from a laptop or from CI.
+#
+# This Worker has no secrets and no server code: wrangler.jsonc declares only an
+# assets directory, so deploying is uploading the Vite build.
+#
+# Actions is the only deploy mechanism for this repo. Do not also connect
+# Workers Builds in the Cloudflare dashboard — with both, a push to main deploys
+# twice and the two uploads race, and the concurrency group below cannot see the
+# Workers Builds one.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never let two deploys race; a cancelled deploy could leave a half-uploaded
+# state, so queue instead of cancelling.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The packing and geometry logic is where this app's real complexity sits,
+      # and a wrong layout is not visible in a diff.
+      - name: Test
+        run: npm test
+
+      # `npm run build` is `tsc --noEmit && vite build`, so this typechecks too.
+      # dist/ is gitignored, which makes this also the proof that a clean
+      # checkout can produce the assets the deploy uploads.
+      - name: Build
+        run: npm run build
+
+      - name: Deploy to Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy

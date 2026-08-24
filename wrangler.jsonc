@@ -2,6 +2,12 @@
   // Cloudflare Workers config: serve the built Vite app as static assets.
   // Deployed by Workers Builds on push (build: npm run build, deploy: npx wrangler deploy).
   "name": "board-game-organizer",
+
+  // Pinned so a deploy always targets the same account, whether it runs from a
+  // laptop or from CI. This is an identifier, not a credential — it appears in
+  // every dashboard URL — so it belongs here rather than in a CI secret. The
+  // API token is the thing that grants access.
+  "account_id": "1174659d5c4369bb282f2dff161414fd",
   "compatibility_date": "2026-07-07",
   "assets": {
     "directory": "./dist",
