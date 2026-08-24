@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-07-05 (session "gbo_fable5")
+Last updated: 2026-08-23 (session "ads-prep")
 
 ## Done ✅
 
@@ -110,6 +110,22 @@ Last updated: 2026-07-05 (session "gbo_fable5")
       group fixedOrientation (lock compartment L×W); H override targets
       packed height (lid-plate mismatch fix); gridfinityBase (42 mm snap +
       tapered feet, snug expansion disabled, persist v6). 51 tests passing.
+- [x] **Google Ads landing-page prep** (2026-08-22): added a dependency-free
+      path router (`src/router.tsx`) and four static pages — About, Privacy
+      Policy, Terms of Use, Contact (`src/pages/*`) — linked from a new header
+      nav and expanded footer. Contact email TheGGordonGordon@gmail.com lives in
+      `src/site.ts` and is the only place it is defined. Privacy policy states
+      the true state of the app: no accounts, no cookies, no analytics/ad tags,
+      localStorage only, exports generated client-side, Cloudflare request logs.
+      Added SEO/OG meta to index.html and `public/robots.txt`. 59 tests passing.
+- [x] **Custom domain wired** (2026-08-23): ggordongordon.com (personal
+      registration, Cloudflare Registrar on the same account as the Worker, so
+      the zone and nameservers need no setup). Served on the single hostname
+      `board-game-organizer.ggordongordon.com`, declared as a `custom_domain`
+      route in wrangler.jsonc — Workers Builds provisions DNS + cert on deploy.
+      `SITE_URL` in src/site.ts is the single source for the origin;
+      `src/meta.ts` sets per-route title/description/canonical/og:url;
+      `public/sitemap.xml` added and referenced from robots.txt. 62 tests.
 
 ## Not yet verified 🔍
 
@@ -121,7 +137,8 @@ Last updated: 2026-07-05 (session "gbo_fable5")
 
 1. Browser + slicer verification of sample-project STLs; print a test module
 2. Nicer lid: chamfered lip for easier insertion; optional thumb notch on box rim
-3. Custom domain for the live site (Cloudflare dashboard → Worker → domains)
+3. Something at the apex ggordongordon.com — it currently serves nothing, and
+   ad reviewers sometimes trim a URL back to the root
 6. See "Out of scope for v1" list in SPEC.md for the longer roadmap
 
 ## How to resume
