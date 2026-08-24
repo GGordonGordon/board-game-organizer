@@ -1,0 +1,44 @@
+# Runs on every pull request: the same test, typecheck and build the deploy
+# does, plus a dry run that validates wrangler.jsonc.
+#
+# Needs no credentials: `wrangler deploy --dry-run` never contacts the API, and
+# the placeholder token below only keeps wrangler from trying to authenticate
+# interactively.
+name: Check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Test, build and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Typecheck and build
+        run: npm run build
+
+      - name: Dry-run the deploy
+        env:
+          CLOUDFLARE_API_TOKEN: dry-run-needs-no-credentials
+        run: npx wrangler deploy --dry-run
